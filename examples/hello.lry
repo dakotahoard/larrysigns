@@ -1,0 +1,5 @@
+%lry 0.1
+%lang asl.v1
+
+# "Are you deaf?"  (spec §11.1)
+[ynq] { ix(2p) DEAF ix(2p) }

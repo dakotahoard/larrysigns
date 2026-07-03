@@ -1,0 +1,60 @@
+%lry 0.1
+%lang asl.v1
+%tempo 1.6sps
+%signer handed(right)
+%register neutral
+
+# Live-interpreting stream: one chunk per clause (§4.4).
+# No @entities block — referents are introduced mid-utterance with !est,
+# as the streaming conventions prescribe (§4.2). State carries across chunks.
+
+# ============================================================
+# "Do you want coffee?"
+# --- chunk 1: yes/no question, brows-up bundle spans the clause (§5.3, §11.1)
+[ynq] { ix(2p) WANT COFFEE ix(2p) } ||
+
+# ============================================================
+# "If it snows tomorrow, school will be closed."
+# --- chunk 2: conditional clause (time-first inside the [cond] span, §11.2;
+#     the cond bundle forces the | at close, §10.4)
+[cond] { TOMORROW SNOW } |
+# --- chunk 3: consequence clause
+SCHOOL CLOSE ||
+
+# ============================================================
+# "My brother gave my sister twenty dollars yesterday."
+# --- chunk 4: time-first, topic-comment; both referents established on the
+#     fly, verb agreement carries the giving path (§6, §11.3)
+YESTERDAY |
+[topic] { poss(1p) BROTHER !est(brother @ ipsi-mid-near) } |
+poss(1p) SISTER !est(sister @ contra-mid-near) |
+num(20, unit: dollar) GIVE :dir(brother -> sister) ||
+
+# ============================================================
+# "She looked at me and said, 'I already finished!'"
+# --- chunk 5: introduce Maria (new referent) sign-then-index (§4.2);
+#     LOOK-AT agrees from her locus to the signer
+WOMAN fs"MARIA" !est(maria @ contra-mid-mid) ix(maria) |
+LOOK-AT :dir(maria -> 1p) SAY ||
+# --- chunk 6: quoted speech as role shift — 1p inside rs = Maria (§5.4);
+#     [pah] mouth morpheme = "finally / success, punctual" (§10.5)
+rs(maria) {
+  affect: excited
+  [pah] { ix(1p) !FINISH }
+}
+||
+
+# ============================================================
+# "We have three options: coffee, tea, or juice. I like the second one best."
+# --- chunk 7: raise a LIST-3 buoy and bind each option to a fingertip (§5.7)
+ix(1p+2p) HAVE num(3) CHOICE |
+buoy options : LIST-3 {
+  !est(coffee @ finger(1))
+  !est(tea    @ finger(2))
+  !est(juice  @ finger(3))
+}
+COFFEE ix(coffee) | TEA ix(tea) | JUICE ix(juice) ||
+# --- chunk 8: "the second one" = a point at the live buoy's second finger;
+#     topic-comment order, then release the buoy
+[topic] { ix(tea) } ix(1p) !LIKE MOST ||
+release(options)
