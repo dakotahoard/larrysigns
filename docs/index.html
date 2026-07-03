@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LARRY — a notation for sign languages</title>
-<meta name="description" content="LARRY is an open, human-readable notation for sign language production and recognition. Built with the signing community. Named for Larry.">
+<meta name="description" content="LARRY is an open, human-readable notation for writing sign languages down — an intermediary format for animation, recognition, messaging, and direct human use. Named for Larry.">
 <style>
   :root{
     --ink:#16222e; --paper:#f8f6f1; --card:#ffffff;
@@ -38,6 +38,7 @@
   .card{background:var(--card);border-radius:10px;padding:1.1rem 1.2rem;border-top:4px solid var(--teal)}
   .card h3{margin:.1rem 0 .4rem;font-size:1.05rem}
   .card p{margin:0;font-size:.97rem}
+  .card.alt{border-top-color:var(--amber)}
   pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;
       padding:1.2rem;overflow-x:auto;font-size:.92rem;line-height:1.55}
   pre .c{color:#7fa3b5} pre .k{color:#7ee0c2} pre .s{color:#f2c777}
@@ -49,6 +50,25 @@
   .btn.ghost{background:transparent;color:var(--teal-dark);border:2px solid var(--teal)}
   footer{background:var(--ink);color:#cfd8de;text-align:center;padding:2rem 1rem;margin-top:4rem;font-size:.95rem}
   footer a{color:#9fd8c9}
+  /* hub diagram */
+  .hub{display:grid;grid-template-columns:1fr auto 1fr;gap:.9rem;align-items:center;margin-top:1.4rem}
+  .hub .col{display:flex;flex-direction:column;gap:.6rem}
+  .hub .io{background:var(--card);border:2px solid #d8d2c6;border-radius:8px;
+           padding:.55rem .8rem;font-size:.93rem;line-height:1.35;position:relative}
+  .hub .io b{display:block;font-size:.95rem}
+  .hub .core{background:var(--ink);color:#fff;border-radius:12px;text-align:center;
+             padding:1.4rem 1.1rem;font-weight:700;font-size:1.15rem;letter-spacing:.05em}
+  .hub .core span{display:block;font-weight:400;font-size:.8rem;color:#cfd8de;letter-spacing:0}
+  .hub .in .io::after,.hub .out .io::before{content:"→";position:absolute;top:50%;
+       transform:translateY(-50%);color:var(--teal);font-weight:700}
+  .hub .in .io::after{right:-1.05rem}
+  .hub .out .io::before{left:-1.05rem}
+  @media (max-width:560px){
+    .hub{grid-template-columns:1fr}
+    .hub .in .io::after,.hub .out .io::before{content:"";display:none}
+    .hub .in::after{content:"↓";text-align:center;color:var(--teal);font-weight:700}
+    .hub .out::before{content:"↓";text-align:center;color:var(--teal);font-weight:700}
+  }
   @media (max-width:480px){h1{font-size:2rem}.tag{font-size:1.1rem}}
 </style>
 </head>
@@ -71,11 +91,17 @@
 
   <section aria-labelledby="what">
     <h2 id="what">What is LARRY?</h2>
-    <p><strong>LARRY</strong> (Linguistic Articulation Representation for Real-time sYnthesis)
-       is a text notation for sign language. It captures what gloss cannot:
-       facial grammar, use of space, timing, and two hands doing different things at once.
-       It is built for live use — a translation system can write it word by word,
-       and an animation system can sign it as it arrives.</p>
+    <p><strong>LARRY is a format, not an app.</strong> It is a way to write signing
+       down as plain text — nothing more, and that's the point.
+       Think of what written text did for speech: once speech could be written,
+       it could be sent, stored, searched, edited, and eventually spoken aloud
+       by machines. Sign languages have never had a practical equivalent.
+       LARRY (Linguistic Articulation Representation for Real-time sYnthesis)
+       is an attempt to build one.</p>
+    <p>Unlike older systems, it captures what simple word-for-word glossing cannot:
+       facial grammar, use of space, timing, and two hands doing different things
+       at once — and a computer can check a LARRY file for errors the way a
+       compiler checks code.</p>
     <div class="cards">
       <div class="card"><h3>Discourse</h3><p>Who is being talked about, and where they live in signing space.</p></div>
       <div class="card"><h3>Lexical</h3><p>Which signs, in what order, with what grammar on the face and body.</p></div>
@@ -87,6 +113,60 @@ YESTERDAY |
 BOOK <span class="s">!est(book @ center-mid-near)</span> GIVE <span class="k">:dir(mother -&gt; 1p)</span></code></pre>
   </section>
 
+  <section aria-labelledby="middle">
+    <h2 id="middle">One format in the middle</h2>
+    <p>LARRY is an <strong>intermediary layer</strong>. Many different things can
+       write it, and many different things can read it — and none of them need to
+       know about each other. That is what a shared format buys: build one good
+       animated signer, and every tool that writes LARRY can use it. Build one
+       good camera recognizer, and everything downstream gets signing as text.</p>
+    <div class="hub">
+      <div class="col in">
+        <div class="io"><b>Translation AI</b> turning speech or text into signing</div>
+        <div class="io"><b>Camera + recognition AI</b> watching a person sign</div>
+        <div class="io"><b>People</b> typing it directly — it's made to be writable</div>
+        <div class="io"><b>Editors &amp; tools</b> composing or correcting signed content</div>
+      </div>
+      <div class="core">.lry<span>plain text,<br>checkable</span></div>
+      <div class="col out">
+        <div class="io"><b>Animated signers</b> on screens, kiosks, phones</div>
+        <div class="io"><b>Text &amp; voice output</b> for hearing readers and listeners</div>
+        <div class="io"><b>Search, storage &amp; analysis</b> — signing you can grep</div>
+        <div class="io"><b>Research &amp; learning tools</b> — dictionaries, grammars, corpora</div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="uses">
+    <h2 id="uses">What can be built on it?</h2>
+    <p>Interpreting is the obvious use — but the deeper comparison is
+       <strong>text-to-speech and speech-to-text</strong>. Those aren't
+       "interpreters for blind people"; they're direct interfaces anyone uses to
+       talk to machines and to each other. LARRY aims to be that layer for signing:</p>
+    <div class="cards">
+      <div class="card"><h3>Animated interpreting</h3>
+        <p>Speech → translation AI → LARRY → animated signer, live. The announcement
+           with no captions, the kiosk with no terp.</p></div>
+      <div class="card alt"><h3>Sign in, like speech-to-text</h3>
+        <p>Sign at a camera; recognition writes LARRY; the machine acts on it or
+           renders it as text or voice. Talk to a computer — or through it — in
+           your own language.</p></div>
+      <div class="card alt"><h3>Sign out, like text-to-speech</h3>
+        <p>Compose a message in LARRY (or from text) and an avatar signs it for
+           you — no filming yourself, editable before sending, reusable.</p></div>
+      <div class="card alt"><h3>Signed messages as text files</h3>
+        <p>A signed message today is a video: heavy, uneditable, unsearchable,
+           face required. As LARRY it's a few hundred bytes you can edit, quote,
+           and search — and render as any signer you like.</p></div>
+      <div class="card"><h3>Archives you can search</h3>
+        <p>Signed content stored as text can be indexed, quoted, diffed, and
+           studied — the way written language always could be.</p></div>
+      <div class="card"><h3>Learning &amp; research</h3>
+        <p>Dictionaries, grammar checkers, corpora, and teaching tools that read
+           and write the same open format.</p></div>
+    </div>
+  </section>
+
   <section aria-labelledby="notterp">
     <h2 id="notterp">Not a replacement for interpreters</h2>
     <p>A good interpreter reads the room, catches confusion as it forms, speaks up
@@ -94,7 +174,9 @@ BOOK <span class="s">!est(book @ center-mid-near)</span> GIVE <span class="k">:d
        Machines don't have that judgment. This project is not trying to build it.</p>
     <div class="not">
       <p><strong>The goal is the empty spaces:</strong> the announcement with no captions,
-         the kiosk with no terp, the 2am emergency room before the interpreter arrives.
+         the kiosk with no terp, the 2am emergency room before the interpreter arrives —
+         and every place a hearing person would reach for text-to-speech or dictation,
+         where a signer today gets nothing at all.
          Where the current option is <em>nothing</em>, a machine that signs is a win.</p>
       <p>First bar to clear: sign better than a video-interpreter cart on three bars
          of hospital Wi-Fi. The bar is on the floor. We expect to trip over it a few times anyway.</p>
