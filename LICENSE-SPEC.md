@@ -1,5 +1,7 @@
 # Specification License
 
+Copyright (c) 2026 Dakota Hoard
+
 The LARRY specification (`spec/`), language profiles (`profiles/`), reports
 (`reports/`), and repository documentation are licensed under the
 **Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**

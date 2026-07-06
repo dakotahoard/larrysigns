@@ -44,7 +44,7 @@ v0.1.1 draft. Machine-validated (all spec examples parse; the linter enforces th
 
 **What LARRY is not: an attempt to replace human interpreters.** The discernment, skill, advocacy, and art of a good terp — reading the room, catching the misunderstanding as it forms, interjecting when the doctor needs to slow down, carrying accountability in legal settings — rest on semantic and social understanding we are not confident machines will ever have, and pursuing it is not this project's goal. The target is the vast space where the alternative to a machine is not a human interpreter but *nothing*: no terp available, no captions, a whiteboard and a pen.
 
-**Is it a mechanical terp, though?** Someday, for some narrow jobs — station announcements, kiosks, the 2am ER wait before the human interpreter arrives. Let's be clear about the bar we're chasing first: **sign better than a VRI cart on three bars of hospital Wi-Fi.** The bar is on the floor. We expect to trip over it several times anyway.
+**Is it a mechanical terp, though?** No — LARRY is a notation, not a system that interprets. It can't be one any more than a text file can read aloud. But it's designed so that others can build such systems on top of it: a translation model that emits LARRY, an animation engine that renders it. Systems like that may someday handle narrow jobs — station announcements, kiosks, the 2am ER wait before the human interpreter arrives. The bar for them to clear: **sign better than a VRI cart on three bars of hospital Wi-Fi.** The bar is on the floor. We expect the first attempts to trip over it several times anyway.
 
 ## Contributing
 
@@ -52,4 +52,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). **ASL is a first-class working language 
 
 ## License
 
-Code (`tools/`) under [MIT](LICENSE). Specification, profiles, and documentation under [CC BY-SA 4.0](LICENSE-SPEC.md). (Verify license choices with counsel before relying on them.)
+Code (`tools/`) under [MIT](LICENSE). Specification, profiles, and documentation under [CC BY-SA 4.0](LICENSE-SPEC.md).
