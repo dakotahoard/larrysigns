@@ -1404,6 +1404,9 @@ let MODEL_URLS=[
   'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/models/gltf/Xbot.glb',
   'https://threejs.org/examples/models/gltf/Xbot.glb'
 ];
+// served over http(s) (e.g. larrysigns.org/tools/): prefer the project's own
+// signer model sitting in this same directory — same-origin, no CORS needed
+if(location.protocol==='http:'||location.protocol==='https:') MODEL_URLS.unshift('sample_avatar_model.vrm');
 try{ const u=localStorage.getItem('larryModelUrl'); if(u) MODEL_URLS.unshift(u); }catch(e){}
 let SK=null;
 const tmpQ2=new THREE.Quaternion();
