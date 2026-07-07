@@ -1,0 +1,892 @@
+%lry 0.1
+%lang asl.v1
+%dict core-draft
+
+# LARRY core dictionary — DRAFT REVIEW QUEUE (100 entries).
+#
+# STATUS: every entry below is an AI draft written from documented ASL
+# phonology. NONE have been verified by a fluent signer. Review each one
+# against the linked reference video, correct it in tools/dict_editor.html,
+# then move it to core.lry. Reference links point to HandSpeak
+# (Jolanta Lapiak, handspeak.com) for comparison only — no content from
+# that site is reproduced here.
+#
+# NOTE: two-handed base-hand signs use 'hands: both free' with dh{}/ndh{}
+# sub-blocks, and compounds use seg{} phases with a compound() ancestry
+# annotation (spec v0.1.2, §7.1.1-7.1.3). A sub-block with no mv: holds
+# its posture for the whole sign.
+
+# "mother" — 5-hand, thumb taps chin. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/mother/
+def MOTHER sign {
+  hands: dh
+  hs: 5
+  orient: palm(contra) fingers(up)
+  loc: chin contact(light)
+  mv: tap(2)
+}
+
+# "father" — 5-hand, thumb taps forehead. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/father/
+def FATHER sign {
+  hands: dh
+  hs: 5
+  orient: palm(contra) fingers(up)
+  loc: forehead contact(light)
+  mv: tap(2)
+}
+
+# "sister" — A-thumb strokes jaw, then 1-hand drops onto NDH 1-hand. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sister/
+def SISTER compound(GIRL, SAME) sign {
+  seg { hs: open-A orient: palm(contra) loc: cheek contact(light)
+        mv: straight(dir: down) size(small) }
+  seg { hands: both free
+        dh  { hs: 1 orient: palm(down) loc: center-mid-near
+              mv: straight(dir: down) size(small) end(contact) }
+        ndh { hs: 1 orient: palm(down) loc: center-mid-near } }
+}
+
+# "brother" — flat-O grip closes at forehead, then 1-hand drops onto NDH 1-hand. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/brother/
+def BROTHER compound(BOY, SAME) sign {
+  seg { hs: flat-C > flat-O orient: palm(contra) loc: forehead contact(light)
+        mv: close size(small) }
+  seg { hands: both free
+        dh  { hs: 1 orient: palm(down) loc: center-mid-near
+              mv: straight(dir: down) size(small) end(contact) }
+        ndh { hs: 1 orient: palm(down) loc: center-mid-near } }
+}
+
+# "daughter" — A-thumb strokes jaw, then flat hand settles into cradle. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/daughter/
+def DAUGHTER compound(GIRL, BABY) sign {
+  seg { hs: open-A orient: palm(contra) loc: cheek contact(light)
+        mv: straight(dir: down) size(small) }
+  seg { hands: both free
+        dh  { hs: open-B orient: palm(up) loc: center-mid-near
+              mv: arc(dir: contra, plane: h) size(small) end(contact) }
+        ndh { hs: open-B orient: palm(up) loc: center-mid-near } }
+}
+
+# "baby" — approx: arms stacked as if cradling, rock side to side. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/baby/
+def BABY sign {
+  hands: both sym(parallel)
+  hs: open-B
+  orient: palm(up)
+  loc: center-mid-near
+  mv: arc(dir: ipsi, plane: h) repeat(2) size(small)
+}
+
+# "family" — F-hands, palms out together, arc apart and around to meet palms-in. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/family/
+def FAMILY sign {
+  hands: both sym(mirror)
+  hs: F
+  orient: palm(fwd)
+  loc: center-mid-near
+  mv: arc(dir: fwd, plane: h) end(contact)
+}
+
+# "friend" — approx: hooked index fingers interlock, then reverse. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/friend/
+def FRIEND sign {
+  hands: both sym(mirror)
+  hs: 1-bent
+  orient: palm(contra)
+  loc: center-mid-near
+  mv: tap(1) twist(180deg) tap(1)
+}
+
+# "woman" — A-thumb strokes jaw, then 5-hand thumb to chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/woman/
+def WOMAN compound(GIRL, FINE) sign {
+  seg { hs: open-A orient: palm(contra) loc: cheek contact(light)
+        mv: straight(dir: down) size(small) }
+  seg { hs: 5 orient: palm(contra) loc: chest-center contact(light)
+        mv: tap(1) }
+}
+
+# "name" — H-hand taps across NDH H-fingers (crossed). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/name/
+def NAME sign {
+  hands: both free
+  dh  { hs: H orient: palm(contra) fingers(fwd) loc: ndh-back contact(light) mv: tap(2) }
+  ndh { hs: H orient: palm(ipsi) fingers(fwd) loc: center-mid-near }
+}
+
+# "deaf" — index touches ear, then mouth/chin. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/deaf/
+def DEAF sign {
+  hands: dh
+  hs: 1
+  orient: palm(fwd)
+  loc: ear-ipsi -> mouth contact(light)
+  mv: straight(dir: down) size(small)
+}
+
+# "hearing (person)" — index circles forward in front of mouth. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/hearing/
+def HEARING sign {
+  hands: dh
+  hs: 1
+  orient: palm(back) fingers(contra)
+  loc: mouth
+  mv: circle(plane: mid, cw) repeat(2) size(small)
+}
+
+# "thank you" — flat hand, fingertips at chin, moves forward and down. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/thank-you/
+def THANK-YOU sign {
+  hands: dh
+  hs: open-B
+  orient: palm(back) fingers(up)
+  loc: chin contact(light)
+  mv: straight(dir: fwd+down) end(release)
+}
+
+# "please" — flat hand rubs circle on chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/please/
+def PLEASE sign {
+  hands: dh
+  hs: open-B
+  orient: palm(back)
+  loc: chest-center contact(light)
+  mv: circle(plane: v, cw) repeat(2)
+}
+
+# "sorry" — A-fist rubs circle on chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sorry/
+def SORRY sign {
+  hands: dh
+  hs: A
+  orient: palm(back)
+  loc: chest-center contact(light)
+  mv: circle(plane: v, cw) repeat(2)
+}
+
+# "yes" — S-fist nods at the wrist. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/yes/
+def YES sign {
+  hands: dh
+  hs: S
+  orient: palm(fwd)
+  loc: neutral
+  mv: nod(wrist) repeat(2)
+}
+
+# "no" — approx: index+middle close onto thumb (20-handshape snap), often doubled. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/no/
+def NO sign {
+  hands: dh
+  hs: U > baby-O
+  orient: palm(fwd)
+  loc: neutral
+  mv: close repeat(2)
+}
+
+# "help" — A-fist on NDH flat palm; both hands lift together. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/help/
+def HELP sign {
+  hands: both free
+  dh  { hs: A orient: palm(contra) loc: ndh-palm contact(firm) mv: straight(dir: up) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near mv: straight(dir: up) }
+}
+
+# "what" — both lax 5-hands palm-up, small side-to-side shake. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/what/
+def WHAT sign {
+  hands: both sym(parallel)
+  hs: 5-lax
+  orient: palm(up)
+  loc: neutral
+  mv: shake
+}
+
+# "where" — index up, shakes side to side. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/where/
+def WHERE sign {
+  hands: dh
+  hs: 1
+  orient: palm(fwd) fingers(up)
+  loc: neutral
+  mv: shake
+}
+
+# "who" — bent index at chin, finger wiggles/circles. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/who/
+def WHO sign {
+  hands: dh
+  hs: 1-bent
+  orient: palm(back)
+  loc: chin
+  mv: wiggle(fingers) size(small)
+}
+
+# "why" — fingertips at forehead pull down/out into Y. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/why/
+def WHY sign {
+  hands: dh
+  hs: open-B > Y
+  orient: palm(back)
+  loc: forehead -> center-mid-near contact(light)
+  mv: straight(dir: fwd+down)
+}
+
+# "when" — index circles around NDH upright index, lands on its tip. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/when/
+def WHEN sign {
+  hands: both free
+  dh  { hs: 1 orient: palm(down) fingers(fwd) loc: center-mid-near
+        mv: circle(plane: v, cw) end(contact) }
+  ndh { hs: 1 orient: palm(fwd) fingers(up) loc: center-mid-near }
+}
+
+# "how" — approx: bent-B hands knuckle to knuckle, roll open to palms-up. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/how/
+def HOW sign {
+  hands: both sym(mirror)
+  hs: bent-B
+  orient: palm(back)
+  loc: center-mid-near
+  mv: twist(180deg)
+}
+
+# "now" — both Y-hands (or bent-B), drop down slightly and hold. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/now/
+def NOW sign {
+  hands: both sym(mirror)
+  hs: Y
+  orient: palm(up)
+  loc: neutral
+  mv: straight(dir: down) size(small) end(hold)
+}
+
+# "today" — NOW doubled: both Y-hands drop twice. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/today/
+def TODAY sign {
+  hands: both sym(mirror)
+  hs: Y
+  orient: palm(up)
+  loc: neutral
+  mv: straight(dir: down) size(small) repeat(2)
+}
+
+# "tomorrow" — A-thumb on cheek arcs forward. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/tomorrow/
+def TOMORROW sign {
+  hands: dh
+  hs: open-A
+  orient: palm(contra)
+  loc: cheek contact(light)
+  mv: arc(dir: fwd, plane: mid)
+}
+
+# "yesterday" — A-thumb touches chin, arcs back to cheek/jaw. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/yesterday/
+def YESTERDAY sign {
+  hands: dh
+  hs: open-A
+  orient: palm(contra)
+  loc: chin -> cheek contact(light)
+  mv: arc(dir: back, plane: mid)
+}
+
+# "morning" — flat hand palm-up rises like the sun (approx: NDH actually rests at the DH elbow crook — no such location in §10.2 yet). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/morning/
+def MORNING sign {
+  hands: both free
+  dh  { hs: open-B orient: palm(up) loc: center-low-near -> center-mid-near
+        mv: arc(dir: up, plane: mid) speed(0.7) }
+  ndh { hs: open-B orient: palm(down) fingers(ipsi) loc: center-mid-near }
+}
+
+# "night" — bent-B palm-down arcs over NDH flat hand (sun setting). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/night/
+def NIGHT sign {
+  hands: both free
+  dh  { hs: bent-B orient: palm(down) loc: wrist-back-ndh contact(light)
+        mv: arc(dir: fwd+down, plane: mid) }
+  ndh { hs: open-B orient: palm(down) fingers(contra) loc: center-mid-near }
+}
+
+# "week" — 1-hand slides along NDH flat palm, heel to fingertips. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/week/
+def WEEK sign {
+  hands: both free
+  dh  { hs: 1 orient: palm(down) fingers(fwd) loc: ndh-palm contact(brush)
+        mv: straight(dir: fwd) }
+  ndh { hs: open-B orient: palm(up) fingers(fwd) loc: center-mid-near }
+}
+
+# "month" — 1-hand slides down the back of NDH upright index. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/month/
+def MONTH sign {
+  hands: both free
+  dh  { hs: 1 orient: palm(back) fingers(contra) loc: ndh-back contact(brush)
+        mv: straight(dir: down) }
+  ndh { hs: 1 orient: palm(fwd) fingers(up) loc: center-mid-near }
+}
+
+# "year" — S-fist orbits NDH S-fist once, lands on top. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/year/
+def YEAR sign {
+  hands: both free
+  dh  { hs: S orient: palm(contra) loc: ndh-back
+        mv: circle(plane: mid, cw) end(contact) }
+  ndh { hs: S orient: palm(ipsi) loc: center-mid-near }
+}
+
+# "time" — bent index taps back of NDH wrist (watch). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/time/
+def TIME sign {
+  hands: both free
+  dh  { hs: 1-bent orient: palm(down) loc: wrist-back-ndh contact(light) mv: tap(2) }
+  ndh { hs: S orient: palm(down) loc: center-mid-near }
+}
+
+# "wait" — both curved 5-hands palm-up, NDH slightly ahead, fingers wiggle. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/wait/
+def WAIT sign {
+  hands: both sym(parallel)
+  hs: 5-lax
+  orient: palm(up)
+  loc: neutral
+  mv: wiggle(fingers)
+}
+
+# "again" — bent-B flips over, fingertips land in NDH flat palm. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/again/
+def AGAIN sign {
+  hands: both free
+  dh  { hs: bent-B orient: palm(up) loc: ndh-palm contact(light)
+        mv: arc(dir: contra, plane: mid) end(contact) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "want" — both claw-5 palms up, pull back toward body. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/want/
+def WANT sign {
+  hands: both sym(mirror)
+  hs: claw-5
+  orient: palm(up)
+  loc: center-mid-mid -> center-mid-near
+  mv: straight(dir: back)
+}
+
+# "like" — thumb+middle on chest, pull forward closing to open-8. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/like/
+def LIKE sign {
+  hands: dh
+  hs: 5 > open-8 @ mv.end
+  orient: palm(back)
+  loc: chest-center -> center-mid-near contact(light)
+  mv: straight(dir: fwd)
+}
+
+# "have" — both bent-B hands, fingertips to chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/have/
+def HAVE sign {
+  hands: both sym(mirror)
+  hs: bent-B
+  orient: palm(back)
+  loc: chest-center contact(light)
+  mv: straight(dir: back) size(small) end(contact)
+}
+
+# "go" — both index fingers arc forward (directional verb; inflect with :dir). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/go/
+def GO sign {
+  hands: both sym(parallel)
+  hs: 1
+  orient: palm(down) fingers(fwd)
+  loc: neutral
+  mv: arc(dir: fwd, plane: mid)
+}
+
+# "come" — both index fingers arc back toward the body (directional; inflect with :dir). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/come/
+def COME sign {
+  hands: both sym(parallel)
+  hs: 1
+  orient: palm(up)
+  loc: center-mid-mid -> center-mid-near
+  mv: arc(dir: back, plane: mid)
+}
+
+# "eat" — flat-O taps at mouth. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/eat/
+def EAT sign {
+  hands: dh
+  hs: flat-O
+  orient: palm(back)
+  loc: mouth contact(light)
+  mv: tap(2)
+}
+
+# "drink" — C-hand at mouth tips up as if drinking. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/drink/
+def DRINK sign {
+  hands: dh
+  hs: C
+  orient: palm(contra)
+  loc: mouth contact(light)
+  mv: arc(dir: up, plane: mid) size(small)
+}
+
+# "sleep" — open hand before face draws down to flat-O at chin; eyes close. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sleep/
+def SLEEP sign {
+  hands: dh
+  hs: 5 > flat-O @ mv.end
+  orient: palm(back)
+  loc: forehead -> chin
+  mv: straight(dir: down) speed(0.7)
+  nm: eyes(closed)
+}
+
+# "work" — S-fist taps on back of NDH S-fist wrist. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/work/
+def WORK sign {
+  hands: both free
+  dh  { hs: S orient: palm(down) loc: wrist-back-ndh contact(firm) mv: tap(2) }
+  ndh { hs: S orient: palm(down) loc: center-mid-near }
+}
+
+# "play" — both Y-hands twist at the wrists. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/play/
+def PLAY sign {
+  hands: both sym(mirror)
+  hs: Y
+  orient: palm(back)
+  loc: neutral
+  mv: twist(90deg) repeat(2)
+}
+
+# "learn" — 5-hand closes to flat-O rising from NDH palm to forehead. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/learn/
+def LEARN sign {
+  hands: both free
+  dh  { hs: 5 > flat-O @ mv.end orient: palm(down) loc: ndh-palm -> forehead
+        mv: straight(dir: up) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "teach" — both flat-O hands at temples push forward, often doubled. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/teach/
+def TEACH sign {
+  hands: both sym(mirror)
+  hs: flat-O
+  orient: palm(fwd)
+  loc: temple-ipsi -> center-mid-near
+  mv: straight(dir: fwd) size(small) repeat(2)
+}
+
+# "know" — bent-B fingertips tap the temple/forehead. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/know/
+def KNOW sign {
+  hands: dh
+  hs: bent-B
+  orient: palm(back)
+  loc: temple-ipsi contact(light)
+  mv: tap(1)
+}
+
+# "think" — index fingertip touches the temple. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/think/
+def THINK sign {
+  hands: dh
+  hs: 1
+  orient: palm(back)
+  loc: temple-ipsi contact(light)
+  mv: tap(1)
+}
+
+# "see" — V-hand at the eyes moves forward. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/see/
+def SEE sign {
+  hands: dh
+  hs: V
+  orient: palm(back) fingers(up)
+  loc: eye -> center-mid-mid
+  mv: straight(dir: fwd)
+}
+
+# "look at" — V-hand points and moves toward the referent (directional; inflect with :dir). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/look-at/
+def LOOK-AT sign {
+  hands: dh
+  hs: V
+  orient: palm(down) fingers(fwd)
+  loc: eye -> center-mid-mid
+  mv: straight(dir: fwd) end(hold)
+}
+
+# "give" — flat-O moves from giver to recipient (directional; inflect with :dir). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/give/
+def GIVE sign {
+  hands: dh
+  hs: flat-O
+  orient: palm(up)
+  loc: center-mid-near -> center-mid-mid
+  mv: arc(dir: fwd, plane: mid)
+}
+
+# "need / must" — bent index (X) hand jerks down at the wrist, doubled for NEED. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/need/
+def NEED sign {
+  hands: dh
+  hs: 1-bent
+  orient: palm(down)
+  loc: neutral
+  mv: nod(wrist) repeat(2) tension(tense)
+}
+
+# "love" — approx: fists/arms crossed pressed to chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/love/
+def LOVE sign {
+  hands: both sym(mirror)
+  hs: S
+  orient: palm(back)
+  loc: chest-center contact(firm)
+  mv: straight(dir: back) size(small) end(hold)
+}
+
+# "live / life" — both open-A thumbs-up hands slide up the torso. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/live/
+def LIVE sign {
+  hands: both sym(parallel)
+  hs: open-A
+  orient: palm(back)
+  loc: abdomen -> chest-center contact(brush)
+  mv: straight(dir: up)
+}
+
+# "say" — index circles forward in front of the mouth. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/say/
+def SAY sign {
+  hands: dh
+  hs: 1
+  orient: palm(back) fingers(contra)
+  loc: mouth
+  mv: circle(plane: mid, cw) size(small)
+}
+
+# "read" — V-fingers scan down NDH flat palm. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/read/
+def READ sign {
+  hands: both free
+  dh  { hs: V orient: palm(down) fingers(contra) loc: ndh-palm
+        mv: zigzag(dir: down) size(small) }
+  ndh { hs: open-B orient: palm(back) fingers(up) loc: center-mid-near }
+}
+
+# "write" — pinched fingers scribble across NDH flat palm. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/write/
+def WRITE sign {
+  hands: both free
+  dh  { hs: baby-O orient: palm(down) loc: ndh-palm contact(brush)
+        mv: zigzag(dir: ipsi) size(small) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "sign (language)" — both index fingers circle alternately, palms out. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sign-language/
+def SIGN sign {
+  hands: both sym(alt)
+  hs: 1
+  orient: palm(fwd) fingers(up)
+  loc: neutral
+  mv: circle(plane: v, ccw) alt
+}
+
+# "interpret" — F-hands palms facing, twist in alternation. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/interpret/
+def INTERPRET sign {
+  hands: both sym(mirror)
+  hs: F
+  orient: palm(contra)
+  loc: neutral
+  mv: twist(90deg) repeat(2) alt
+}
+
+# "stop" — flat hand blade chops onto NDH palm. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/stop/
+def STOP sign {
+  hands: both free
+  dh  { hs: open-B orient: palm(contra) fingers(fwd) loc: ndh-palm contact(firm)
+        mv: straight(dir: down) end(contact) tension(tense) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "visit" — both V-hands circle alternately forward. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/visit/
+def VISIT sign {
+  hands: both sym(alt)
+  hs: V
+  orient: palm(back) fingers(up)
+  loc: neutral
+  mv: circle(plane: mid, cw) alt
+}
+
+# "understand" — flicked-up index springs open near the temple. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/understand/
+def UNDERSTAND sign {
+  hands: dh
+  hs: 1-bent > 1 @ mv.end
+  orient: palm(back)
+  loc: temple-ipsi
+  mv: flick
+}
+
+# "finish" — both 5-hands palms in, flip outward. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/finish/
+def FINISH sign {
+  hands: both sym(mirror)
+  hs: 5
+  orient: palm(back) fingers(up)
+  loc: neutral
+  mv: twist(180deg)
+}
+
+# "choice / choose" — F-hand plucks from NDH upright pair toward self, repeats. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/choose/
+def CHOICE sign {
+  hands: both free
+  dh  { hs: 5 > F @ mv.end orient: palm(fwd) loc: center-mid-mid -> center-mid-near
+        mv: straight(dir: back) size(small) repeat(2) }
+  ndh { hs: V orient: palm(back) fingers(up) loc: center-mid-mid }
+}
+
+# "happy" — flat hand brushes upward on chest, repeats. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/happy/
+def HAPPY sign {
+  hands: dh
+  hs: open-B
+  orient: palm(back)
+  loc: chest-center contact(brush)
+  mv: arc(dir: up, plane: mid) repeat(2)
+}
+
+# "sad" — both 5-hands slide down in front of the face. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sad/
+def SAD sign {
+  hands: both sym(parallel)
+  hs: 5
+  orient: palm(back) fingers(up)
+  loc: forehead -> chin
+  mv: straight(dir: down) speed(0.6)
+  nm: brows(furrow, 0.4)
+}
+
+# "angry" — claw-5 at the face pulls outward, tense; nose wrinkles. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/angry/
+def ANGRY sign {
+  hands: dh
+  hs: claw-5
+  orient: palm(back)
+  loc: nose -> center-mid-near
+  mv: straight(dir: fwd) tension(tense)
+  nm: nose(wrinkle)
+}
+
+# "tired" — both bent-B fingertips on chest rotate downward, body sags. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/tired/
+def TIRED sign {
+  hands: both sym(mirror)
+  hs: bent-B
+  orient: palm(back)
+  loc: chest-ipsi contact(light)
+  mv: twist(90deg) speed(0.6)
+}
+
+# "sick" — open-8 middle finger touches forehead. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sick/
+def SICK sign {
+  hands: dh
+  hs: open-8
+  orient: palm(back)
+  loc: forehead contact(light)
+  mv: tap(1)
+}
+
+# "hungry" — C-hand slides down the chest. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/hungry/
+def HUNGRY sign {
+  hands: dh
+  hs: C
+  orient: palm(back)
+  loc: chest-center -> abdomen contact(brush)
+  mv: straight(dir: down)
+}
+
+# "scared" — fists spring open across the chest; eyes widen. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/scared/
+def SCARED sign {
+  hands: both sym(mirror)
+  hs: S > 5 @ mv.end
+  orient: palm(back)
+  loc: chest-center
+  mv: open tension(tense)
+  nm: eyes(wide)
+}
+
+# "water" — W taps the chin. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/water/
+def WATER sign {
+  hands: dh
+  hs: W
+  orient: palm(contra)
+  loc: chin contact(light)
+  mv: tap(2)
+}
+
+# "milk" — hand squeezes open-closed (milking). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/milk/
+def MILK sign {
+  hands: dh
+  hs: C > S
+  orient: palm(contra)
+  loc: neutral
+  mv: close repeat(2)
+}
+
+# "coffee" — S-fist grinds atop NDH S-fist. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/coffee/
+def COFFEE sign {
+  hands: both free
+  dh  { hs: S orient: palm(contra) loc: ndh-back
+        mv: circle(plane: h, ccw) size(small) repeat(2) }
+  ndh { hs: S orient: palm(ipsi) loc: center-mid-near }
+}
+
+# "tea" — F-hand stirs above NDH O-hand cup. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/tea/
+def TEA sign {
+  hands: both free
+  dh  { hs: F orient: palm(down) loc: ndh-palm
+        mv: circle(plane: h, cw) size(small) repeat(2) }
+  ndh { hs: O orient: fingers(up) loc: center-mid-near }
+}
+
+# "juice" — often fingerspelled or DRINK+J; approx: I-hand traces J at chin. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/juice/
+def JUICE sign {
+  hands: dh
+  hs: I
+  orient: palm(back)
+  loc: chin
+  mv: twist(90deg) size(small)
+}
+
+# "apple" — knuckle of bent index twists on the cheek. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/apple/
+def APPLE sign {
+  hands: dh
+  hs: 1-bent
+  orient: palm(fwd)
+  loc: cheek contact(firm)
+  mv: twist(90deg) repeat(2)
+}
+
+# "cookie" — claw-5 twists on NDH flat palm (cookie cutter). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/cookie/
+def COOKIE sign {
+  hands: both free
+  dh  { hs: claw-5 orient: palm(down) loc: ndh-palm contact(light)
+        mv: twist(90deg) repeat(2) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "home" — flat-O fingertips touch chin, then cheek. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/home/
+def HOME sign {
+  hands: dh
+  hs: flat-O
+  orient: palm(back)
+  loc: mouth -> cheek contact(light)
+  mv: arc(dir: up, plane: mid) size(small)
+}
+
+# "school" — flat hands clap twice, DH on NDH. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/school/
+def SCHOOL sign {
+  hands: both free
+  dh  { hs: open-B orient: palm(down) loc: ndh-palm contact(firm) mv: tap(2) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "store" — both flat-O hands hang fingers-down, swing outward twice. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/store/
+def STORE sign {
+  hands: both sym(mirror)
+  hs: flat-O
+  orient: palm(back) fingers(down)
+  loc: neutral
+  mv: arc(dir: fwd, plane: mid) size(small) repeat(2)
+}
+
+# "house" — flat hands trace roof peak then walls down. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/house/
+def HOUSE sign {
+  hands: both sym(mirror)
+  hs: open-B
+  orient: palm(contra)
+  loc: center-high-near -> center-mid-near
+  mv: arc(dir: ipsi+down, plane: v) straight(dir: down)
+}
+
+# "car" — both S-fists steer an imaginary wheel. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/car/
+def CAR sign {
+  hands: both sym(alt)
+  hs: S
+  orient: palm(contra)
+  loc: neutral
+  mv: arc(dir: up, plane: v) alt repeat(2) size(small)
+}
+
+# "bathroom / toilet" — T-hand shakes side to side. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/bathroom/
+def BATHROOM sign {
+  hands: dh
+  hs: T
+  orient: palm(fwd)
+  loc: neutral
+  mv: shake
+}
+
+# "doctor" — fingertips tap NDH wrist pulse. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/doctor/
+def DOCTOR sign {
+  hands: both free
+  dh  { hs: D orient: palm(down) loc: wrist-back-ndh contact(light) mv: tap(2) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "money" — flat-O back taps NDH palm. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/money/
+def MONEY sign {
+  hands: both free
+  dh  { hs: flat-O orient: palm(up) loc: ndh-palm contact(light) mv: tap(2) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near }
+}
+
+# "good" — flat hand from chin drops forward into neutral space. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/good/
+def GOOD sign {
+  hands: dh
+  hs: open-B
+  orient: palm(back) fingers(up)
+  loc: chin -> center-mid-near contact(light)
+  mv: straight(dir: fwd+down)
+}
+
+# "bad" — flat hand at chin flips over and drops down. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/bad/
+def BAD sign {
+  hands: dh
+  hs: open-B
+  orient: palm(back)
+  loc: chin -> center-mid-near contact(light)
+  mv: straight(dir: fwd+down) + twist(180deg)
+}
+
+# "big" — L-hands (slightly bent) spread wide apart. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/big/
+def BIG sign {
+  hands: both sym(mirror)
+  hs: L
+  orient: palm(fwd)
+  loc: center-mid-near
+  mv: straight(dir: ipsi)
+}
+
+# "small" — flat hands palms facing, press toward each other. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/small/
+def SMALL sign {
+  hands: both sym(mirror)
+  hs: open-B
+  orient: palm(contra)
+  loc: center-mid-near
+  mv: straight(dir: contra) size(small) repeat(2)
+}
+
+# "hot" — claw-5 at mouth twists sharply away and down. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/hot/
+def HOT sign {
+  hands: dh
+  hs: claw-5
+  orient: palm(back)
+  loc: mouth -> center-mid-near
+  mv: twist(180deg) + straight(dir: fwd+down) speed(1.4)
+}
+
+# "more" — flat-O fingertips tap together. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/more/
+def MORE sign {
+  hands: both sym(mirror)
+  hs: flat-O
+  orient: palm(contra) fingers(fwd)
+  loc: center-mid-near
+  mv: tap(2)
+}
+
+# "different" — crossed index fingers uncross, swinging apart. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/different/
+def DIFFERENT sign {
+  hands: both sym(mirror)
+  hs: 1
+  orient: palm(fwd)
+  loc: center-mid-near
+  mv: straight(dir: ipsi)
+}
+
+# "most" — A-thumb hand brushes up past NDH A-fist knuckles. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/most/
+def MOST sign {
+  hands: both free
+  dh  { hs: open-A orient: palm(contra) loc: ndh-back contact(brush)
+        mv: straight(dir: up) size(small) }
+  ndh { hs: A orient: palm(ipsi) loc: center-mid-near }
+}
+
+# "snow" — 5-hands flutter downward like falling flakes (spec §7.2 example). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/snow/
+def SNOW sign {
+  hands: both sym(parallel)
+  hs: 5
+  orient: palm(down)
+  loc: center-high-near -> center-low-near
+  mv: straight(dir: down) + wiggle(fingers) speed(0.6)
+}
+
+# "rain" — claw-5 hands drop downward twice. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/rain/
+def RAIN sign {
+  hands: both sym(parallel)
+  hs: claw-5
+  orient: palm(down)
+  loc: center-high-near -> center-mid-near
+  mv: straight(dir: down) repeat(2)
+}
+
+# "close / shut" — flat hands swing together palms-forward until they meet. AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/close/
+def CLOSE sign {
+  hands: both sym(mirror)
+  hs: open-B
+  orient: palm(fwd) fingers(up)
+  loc: center-mid-near
+  mv: arc(dir: contra, plane: h) end(contact)
+}
+
+# "sit" — H-fingers sit onto NDH H-fingers (legs on a bench). AI-DRAFT, UNREVIEWED — verify: https://www.handspeak.com/word/sit/
+def SIT sign {
+  hands: both free
+  dh  { hs: H orient: palm(down) fingers(fwd) loc: ndh-back contact(light)
+        mv: straight(dir: down) size(small) end(contact) }
+  ndh { hs: H orient: palm(down) fingers(fwd) loc: center-mid-near }
+}

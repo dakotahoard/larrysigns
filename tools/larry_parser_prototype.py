@@ -12,7 +12,9 @@ import re, sys
 TOKEN_RE = re.compile(r"""
     (?P<ws>\s+)
   | (?P<comment>\#[^\n]*)
-  | (?P<pragma>%%?[a-z][a-z0-9_-]*)
+  | (?P<pragma>%%?[a-z][a-z0-9_-]*[^%\#\n]*)   # §13.1 rule 1: line-oriented —
+                                               # a pragma token carries its text
+                                               # up to EOL / '#' / next '%'
   | (?P<string>"[^"]*")
   | (?P<arrow>->)
   | (?P<dbar>\|\|)
@@ -20,6 +22,9 @@ TOKEN_RE = re.compile(r"""
                                              # 3p-any) collide with the number rule;
                                              # the spec's lexical rules must call
                                              # this out explicitly.
+  | (?P<hsid>\d+-[A-Za-z][A-Za-z0-9_.+-]*)   # digit-initial handshape names
+                                             # from §10.1 (1-bent, 5-lax);
+                                             # must precede the number rule
   | (?P<num>\d+(\.\d+)?(b|deg|sps)?)
   | (?P<ident>[A-Za-z][A-Za-z0-9_.+-]*)      # signs, keys, zones, channels
   | (?P<sym>[{}()\[\]:~!@,>|+])
@@ -68,22 +73,21 @@ class P:
         return out
 
     def pragma(self):
-        name = self.next()[1]
-        args = []
-        # DISAMBIG: pragmas are line-oriented in spirit but the grammar says
-        # whitespace is insignificant. We consume args until next pragma/'@'/item
-        # ... which is undecidable for '%dict core, medical.v2' followed by a
-        # lowercase item. Works here only because no lowercase bare items exist
-        # at top level. SPEC BUG: pragmas need explicit termination (newline).
+        # §13.1 rule 1 (v0.1.1): pragmas are line-oriented. The tokenizer hands
+        # us the whole pragma text up to end-of-line / '#' / next '%'; args are
+        # parsed from that text rather than the token stream, so a lowercase
+        # item on the next line ('def HELLO sign {...}') can never be swallowed
+        # as a pragma argument. (This was the SPEC BUG noted in earlier
+        # revisions; v0.1.1 resolved it, and this parser now implements it.)
+        text = self.next()[1]
+        name = re.match(r"%%?[a-z][a-z0-9_-]*", text).group()
+        rest = text[len(name):]
         if name == "%%retract":
-            self.expect("("); args.append(self.next()[1]); self.expect(")")
-            return ("retract", args)
-        while self.peek()[0] in ("num", "ident") or self.at(","):
-            t = self.next()
-            if t[1] != ",": args.append(t[1])
-            if self.at("(") :  # handed(right)
-                self.expect("("); args.append(self.next()[1]); self.expect(")")
-        return ("pragma", name, args)
+            m = re.search(r"\(\s*(\d+)\s*\)", rest)
+            if not m:
+                raise SyntaxError("%%retract requires (n)")
+            return ("retract", [m.group(1)])
+        return ("pragma", name, re.findall(r"[A-Za-z0-9_.+-]+", rest))
 
     def entities(self):
         self.expect("@"); self.expect("entities"); self.expect("{")
@@ -253,26 +257,50 @@ class P:
     def definition(self):
         self.expect("def")
         name = self.next()[1]
-        return ("def", name, self.phonblock("sign"))
+        # v0.1.2: optional compound ancestry annotation (metadata only, §7.1.3)
+        comp = None
+        if self.at("compound") and self.at("(", 1):
+            self.next()
+            comp = self.optargs()
+        return ("def", name, comp, self.phonblock("sign"))
 
     FIELDKEYS = {"hands", "hs", "orient", "loc", "mv", "nm"}
+    SUBBLOCKS = ("dh", "ndh", "seg")
 
     def phonblock(self, kind):
         self.expect(kind); self.expect("{")
+        # v0.1.2 sub-blocks (§7.1.1-7.1.2): sign{} may contain dh{}/ndh{}
+        # (under 'both free') and seg{} segments; seg{} may contain hand
+        # blocks; nothing nests deeper. cl{} takes plain fields only.
+        fields = self.phonfields(self.SUBBLOCKS if kind == "sign" else ())
+        self.expect("}")
+        return (kind, fields)
+
+    def phonfields(self, allowed):
         fields = []
         while not self.at("}"):
+            t = self.peek()
+            if t[0] == "ident" and t[1] in allowed and self.at("{", 1):
+                name = self.next()[1]; self.expect("{")
+                sub = self.phonfields(("dh", "ndh") if name == "seg" else ())
+                self.expect("}")
+                fields.append((name, sub))
+                continue
             key = self.next()[1]
             self.expect(":")
             vals = []
             # DISAMBIG: a field's value list ends when the next tokens look like
-            # 'fieldkey :' or '}'. The EBNF leaves fieldvalue undefined; without
-            # a closed fieldkey set this needs 2-token lookahead over an open
-            # vocabulary. SPEC BUG: field values should be comma- or
-            # newline-terminated, or fieldkeys must be a closed set per profile.
+            # 'fieldkey :', a sub-block opener 'dh/ndh/seg {', or '}'. Closed
+            # fieldkey set per §13.1 rule 4; sub-block openers per §13.1 rule 4
+            # as amended in v0.1.2.
             while not self.at("}") and not (
                 self.peek()[0] == "ident"
                 and self.peek()[1] in self.FIELDKEYS
                 and self.at(":", 1)
+            ) and not (
+                self.peek()[0] == "ident"
+                and self.peek()[1] in self.SUBBLOCKS
+                and self.at("{", 1)
             ):
                 t = self.next()
                 if t[1] == "(":
@@ -282,8 +310,7 @@ class P:
                         depth += (u[1] == "(") - (u[1] == ")")
                 vals.append(t[1])
             fields.append((key, vals))
-        self.expect("}")
-        return (kind, fields)
+        return fields
 
 
 def parse(src):
@@ -408,6 +435,37 @@ rs(daughter) {
  "ADV compound+each":   'ix(1p+2p) GIVE :dir(1p -> each(mother, sister))',
  "ADV chained asp":     'WAIT:asp(cont):asp(intense)',
  "ADV est-on-fs zone":  'fs"DENVER" !est(denver @ ipsi-mid-far)',
+ # --- v0.1.1 line-oriented pragmas (§13.1 rule 1) ---
+ "ADV pragma-then-def": '''
+%lry 0.1
+%lang asl.v1
+%dict core
+def HELLO sign { hs: open-B loc: temple-ipsi }
+''',
+ # --- digit-initial handshape names from the §10.1 inventory ---
+ "ADV digit-initial hs": '''
+def UNDERSTAND sign { hs: 1-bent > 1 @ mv.end loc: temple-ipsi mv: flick }
+def WHAT sign { hands: both sym(mirror) hs: 5-lax loc: neutral mv: shake }
+par 3b { dh: cl{ hs: 3 loc: neutral } }
+''',
+ # --- v0.1.2 sub-blocks and compound annotation (§7.1.1-7.1.3) ---
+ "v0.1.2 both-free def": '''
+def HELP sign {
+  hands: both free
+  dh  { hs: A orient: palm(contra) loc: ndh-palm contact(firm) mv: straight(dir: up) }
+  ndh { hs: open-B orient: palm(up) loc: center-mid-near mv: straight(dir: up) }
+}
+''',
+ "v0.1.2 seg compound def": '''
+def SISTER compound(GIRL, SAME) sign {
+  seg { hs: open-A orient: palm(contra) loc: cheek contact(light)
+        mv: straight(dir: down) size(small) }
+  seg { hands: both free
+        dh  { hs: 1 orient: palm(down) loc: center-mid-near
+              mv: straight(dir: down) size(small) end(contact) }
+        ndh { hs: 1 orient: palm(down) loc: center-mid-near } }
+}
+''',
 }
 
 if __name__ == "__main__":

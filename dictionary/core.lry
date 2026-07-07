@@ -1,0 +1,29 @@
+%lry 0.1
+%lang asl.v1
+%dict core
+
+# LARRY core sign dictionary.
+# Managed by tools/dict_editor.html — hand edits are fine; keep one
+# "# gloss" comment line directly above each def (the editor reads it).
+#
+# Every definition here is a hypothesis pending review by fluent Deaf
+# signers and ASL linguists (see GOVERNANCE.md). Entries sourced from
+# the spec are marked; everything else needs a citation or a review.
+
+# "hello" — greeting (spec §7.1)
+def HELLO sign {
+  hands: dh
+  hs: open-B
+  orient: palm(fwd) fingers(up)
+  loc: temple-ipsi contact(light)
+  mv: straight(dir: ipsi+fwd) size(small) end(release)
+}
+
+# "book" (spec §7.1)
+def BOOK sign {
+  hands: both sym(mirror)
+  hs: open-B
+  orient: palm(contact)
+  loc: center-mid-near
+  mv: pivot(axis: pinky-edge, open: 120deg) end(hold)
+}

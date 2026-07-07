@@ -8,7 +8,7 @@ Named for Larry, the project author's father. · **https://larrysigns.org**
 
 ## Why
 
-HamNoSys/SiGML solved phonetic sign description in the 1980s–2000s but are write-only for humans, describe poses rather than motion, have no discourse layer (ASL's spatial grammar), and predate LLMs. Raw gloss loses the grammar entirely. LARRY is a three-layer notation — discourse (spatial referents), lexical (signs + inflections + non-manual spans), phonetic (articulator escape hatch) — with beat-based timing, a streaming chunk model for live interpretation, and a renderer contract separating what is normative from what a learned motion model supplies. See the [spec](spec/larry-spec-v0.1.1.md) §1 for the full argument and §12 for comparisons.
+HamNoSys/SiGML solved phonetic sign description in the 1980s–2000s but are write-only for humans, describe poses rather than motion, have no discourse layer (ASL's spatial grammar), and predate LLMs. Raw gloss loses the grammar entirely. LARRY is a three-layer notation — discourse (spatial referents), lexical (signs + inflections + non-manual spans), phonetic (articulator escape hatch) — with beat-based timing, a streaming chunk model for live interpretation, and a renderer contract separating what is normative from what a learned motion model supplies. See the [spec](spec/larry-spec-latest.md) §1 for the full argument and §12 for comparisons.
 
 ```lry
 %lry 0.1
@@ -32,11 +32,11 @@ No dependencies beyond Python 3.9+.
 
 ## Repository layout
 
-`spec/` — the language specification (normative). · `profiles/` — language profiles (`asl.v1` is embedded in the spec §10; `pse.v1` is the first external profile). · `tools/` — prototype parser and reference semantic linter. · `examples/` — valid `.lry` streams; CI lints every one. · `reports/` — adversarial stress-test and cold-authoring test reports; read these to see how the spec has been exercised and where its known weaknesses are.
+`spec/` — the language specification (normative). · `profiles/` — language profiles (`asl.v1` is embedded in the spec §10; `pse.v1` is the first external profile). · `tools/` — prototype parser, reference semantic linter, and `dict_editor.html` (a browser GUI for adding dictionary entries — open it locally, no server needed). · `dictionary/` — the core sign dictionary (`core.lry`, phonetic `def` blocks; CI lints it). · `examples/` — valid `.lry` streams; CI lints every one. · `reports/` — adversarial stress-test and cold-authoring test reports; read these to see how the spec has been exercised and where its known weaknesses are.
 
 ## Status
 
-v0.1.1 draft. Machine-validated (all spec examples parse; the linter enforces the discourse registry, buoy lifecycle, and streaming rules; a fresh LLM authored valid LARRY from the spec alone — see `reports/`). **Not yet reviewed by Deaf signers — the project's gating milestone for v0.2.** Roadmap: spec §14.
+v0.1.2 draft. Machine-validated (all spec examples parse; the linter enforces the discourse registry, buoy lifecycle, and streaming rules; a fresh LLM authored valid LARRY from the spec alone — see `reports/`). **Not yet reviewed by Deaf signers — the project's gating milestone for v0.2.** Roadmap: spec §14.
 
 ## What this project is — and is not
 

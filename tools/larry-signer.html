@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LARRY 3D Signer — proof-of-concept renderer</title>
+<style>
+:root{--bg:#14161a;--panel:#1c1f26;--edge:#2b303a;--ink:#e8eaf0;--dim:#8b93a3;--acc:#5b9dff;--warn:#e6b455;--err:#e66a6a;--ok:#63c78a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header{padding:10px 16px;border-bottom:1px solid var(--edge);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .sub{color:var(--dim);font-size:12px}
+#main{flex:1;display:flex;min-height:0}
+#left{width:44%;min-width:340px;display:flex;flex-direction:column;border-right:1px solid var(--edge)}
+#toolbar{display:flex;gap:8px;padding:8px;border-bottom:1px solid var(--edge);align-items:center;flex-wrap:wrap}
+select,button{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#0b1220;font-weight:650}
+button:disabled{opacity:.45;cursor:default}
+#src{flex:1;resize:none;border:0;outline:0;background:var(--bg);color:var(--ink);font:13px/1.5 ui-monospace,Consolas,monospace;padding:12px;white-space:pre;tab-size:2}
+#console{height:148px;overflow:auto;border-top:1px solid var(--edge);font:12px/1.5 ui-monospace,Consolas,monospace;padding:8px 12px;background:var(--panel)}
+#console .err{color:var(--err)}#console .warn{color:var(--warn)}#console .ok{color:var(--ok)}#console .info{color:var(--dim)}
+#right{flex:1;display:flex;flex-direction:column;min-width:0}
+#stage{flex:1;position:relative;min-height:0}
+#stage canvas{display:block}
+#caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;pointer-events:none}
+#caption span{background:rgba(10,12,16,.75);padding:4px 14px;border-radius:8px;font-size:18px;letter-spacing:.04em}
+#nmcap{position:absolute;left:0;right:0;bottom:52px;text-align:center;pointer-events:none;color:var(--dim);font-size:12px}
+#transport{display:flex;gap:10px;align-items:center;padding:8px 12px;border-top:1px solid var(--edge)}
+#seek{flex:1}
+input[type=range]{accent-color:var(--acc)}
+#time{color:var(--dim);font:12px ui-monospace,monospace;min-width:110px;text-align:right}
+.note{color:var(--dim);font-size:11px;padding:2px 12px 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>LARRY 3D Signer</h1>
+  <span class="sub">a proof-of-concept animation renderer built on the <a href="https://github.com/dakotahoard/larrysigns" style="color:var(--acc)">LARRY notation</a> (asl.v1) — motion is approximate and unreviewed; see console for renderer warnings</span>
+</header>
+<div id="main">
+  <div id="left">
+    <div id="toolbar">
+      <select id="examples"></select>
+      <button id="btnSign" class="primary">▶ Sign it</button>
+      <button id="btnStop">■ Stop</button>
+      <label style="color:var(--dim);font-size:12px">speed <input id="speed" type="range" min="0.4" max="1.8" step="0.1" value="1" style="vertical-align:middle;width:90px"></label>
+      <input id="modelUrl" placeholder="custom character URL — .vrm (VRM 0.x, e.g. VRoid) or Mixamo-rig .glb, CORS-hosted" style="flex:1;min-width:170px;background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:6px;padding:6px 8px;font:12px ui-monospace,monospace">
+      <button id="btnModel">Load model</button>
+    </div>
+    <textarea id="src" spellcheck="false"></textarea>
+    <div id="console"><span class="info">Ready. Pick an example or paste any .lry text, then Sign it.</span></div>
+  </div>
+  <div id="right">
+    <div id="stage">
+      <div id="nmcap"><span></span></div>
+      <div id="caption"><span></span></div>
+    </div>
+    <div id="transport">
+      <input id="seek" type="range" min="0" max="1000" value="0">
+      <span id="time">0.0s / 0.0s</span>
+    </div>
+    <div class="note">Drag to orbit · wheel to zoom. Unknown signs are fingerspelled and flagged (spec §9.4). LARRY itself is only the notation; this page is one renderer that reads it.</div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+"use strict";
+/* =====================================================================
+   LARRY 3D Signer — single-file proof of concept.
+   Pipeline: .lry text → tokenize → parse (spec §13) → lint/resolve (§6)
+   → compile to a beat-timed multi-channel score (§8) → pose a Three.js
+   humanoid per frame (renderer contract §9).
+   ===================================================================== */
+
+// ---------------------------------------------------------------------
+// Embedded examples
+// ---------------------------------------------------------------------
+const EXAMPLES = {
+"hello.lry — Are you deaf?": `%lry 0.1
+%lang asl.v1
+
+# "Are you deaf?"  (spec §11.1)
+[ynq] { ix(2p) DEAF ix(2p) }
+`,
+"conditional — If it rains tomorrow…": `%lry 0.1
+%lang asl.v1
+
+# "If it rains tomorrow, I'm not going." (spec §11.2)
+[cond] { TOMORROW RAIN } | [neg] { ix(1p) GO }
+`,
+"spatial discourse — mother, book, sister": `%lry 0.1
+%lang asl.v1
+
+# spec §11.3
+@entities { mother, sister, book }
+
+YESTERDAY |
+[topic] { poss(1p) MOTHER !est(mother @ ipsi-mid-near) } |
+BOOK !est(book @ center-mid-near) GIVE :dir(mother -> 1p) ||
+poss(1p) SISTER !est(sister @ contra-mid-near) |
+GIVE :dir(1p -> sister)
+`,
+"classifier — car up the hill": `%lry 0.1
+%lang asl.v1
+
+# spec §11.4
+@entities { car : vehicle, hill : flat-surface }
+
+[topic] { HILL } [topic] { CAR } ||
+par 3b {
+  ndh: cl{ hs: open-B orient: palm(down) fingers(contra)
+           loc: contra-mid-near } ~hold
+  dh:  cl{ hs: 3 orient: palm(contra) fingers(fwd)
+           loc: contra-low-near
+           mv: path(spiral, to: ipsi-high-mid) speed(0.6) }
+  face.mouth: morpheme(mm)
+  gaze: follow(dh)
+}
+`,
+"role shift — daughter says no": `%lry 0.1
+%lang asl.v1
+
+# spec §11.5
+@entities { daughter }
+
+[topic] { poss(1p) DAUGHTER !est(daughter @ ipsi-mid-near) } |
+SAY ||
+rs(daughter) {
+  affect: exasperated
+  [neg] { ix(1p) WANT !GO SCHOOL }
+}
+`,
+"live-stream-demo.lry — full stream": `%lry 0.1
+%lang asl.v1
+%tempo 1.6sps
+%signer handed(right)
+%register neutral
+
+# Live stream: one chunk per clause (§4.4); referents enter mid-utterance.
+
+# "Do you want coffee?"
+[ynq] { ix(2p) WANT COFFEE ix(2p) } ||
+
+# "If it snows tomorrow, school will be closed."
+[cond] { TOMORROW SNOW } |
+SCHOOL CLOSE ||
+
+# "My brother gave my sister twenty dollars yesterday."
+YESTERDAY |
+[topic] { poss(1p) BROTHER !est(brother @ ipsi-mid-near) } |
+poss(1p) SISTER !est(sister @ contra-mid-near) |
+num(20, unit: dollar) GIVE :dir(brother -> sister) ||
+
+# "She looked at me and said, 'I already finished!'"
+WOMAN fs"MARIA" !est(maria @ contra-mid-mid) ix(maria) |
+LOOK-AT :dir(maria -> 1p) SAY ||
+rs(maria) {
+  affect: excited
+  [pah] { ix(1p) !FINISH }
+}
+||
+
+# "We have three options: coffee, tea, or juice. I like the second one best."
+ix(1p+2p) HAVE num(3) CHOICE |
+buoy options : LIST-3 {
+  !est(coffee @ finger(1))
+  !est(tea    @ finger(2))
+  !est(juice  @ finger(3))
+}
+COFFEE ix(coffee) | TEA ix(tea) | JUICE ix(juice) ||
+[topic] { ix(tea) } ix(1p) !LIKE MOST ||
+release(options)
+`,
+"fingerspelling + numbers": `%lry 0.1
+%lang asl.v1
+
+# Unknown token falls back to fingerspelling with a warning (§9.4)
+HELLO | poss(1p) NAME fs"LARRY" ||
+num(1987) | num(4.50, unit: dollar) | num(25, unit: percent)
+`};
+
+// ---------------------------------------------------------------------
+// Console / warnings
+// ---------------------------------------------------------------------
+const consoleEl = document.getElementById('console');
+function log(cls, msg){
+  const d=document.createElement('div'); d.className=cls; d.textContent=msg;
+  consoleEl.appendChild(d); consoleEl.scrollTop=consoleEl.scrollHeight;
+}
+function clearLog(){ consoleEl.innerHTML=''; }
+
+// ---------------------------------------------------------------------
+// Tokenizer (port of tools/larry_parser_prototype.py, plus §13.1 rules:
+// pragmas are line-oriented; 1p/2p/3p-any lex before numbers; the ! rule)
+// ---------------------------------------------------------------------
+const TOKEN_RE = new RegExp([
+  '(?<ws>\\s+)',
+  '(?<comment>#[^\\n]*)',
+  '(?<string>"[^"]*")',
+  '(?<arrow>->)',
+  '(?<dbar>\\|\\|)',
+  '(?<ref>[123]p(?:-any)?\\b)',
+  '(?<num>(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:b|deg|sps)?)',
+  '(?<ident>[A-Za-z][A-Za-z0-9_.+-]*)',
+  '(?<sym>[{}()\\[\\]:~!@,>|+])'
+].join('|'), 'y');
+
+function tokenize(src){
+  const toks=[]; let i=0;
+  while(i<src.length){
+    // §13.1(1): pragmas are line-oriented
+    if(src[i]==='%'){
+      let j=src.indexOf('\n',i); if(j<0) j=src.length;
+      const line=src.slice(i,j).trim();
+      const m=line.match(/^(%%?[a-z][a-z0-9_-]*)\s*(.*)$/);
+      if(!m) throw new SyntaxError('bad pragma: '+line);
+      toks.push({k:'pragma',v:m[1],rest:m[2]});
+      i=j; continue;
+    }
+    TOKEN_RE.lastIndex=i;
+    const m=TOKEN_RE.exec(src);
+    if(!m || m.index!==i) throw new SyntaxError('lex error at: '+JSON.stringify(src.slice(i,i+20)));
+    i=TOKEN_RE.lastIndex;
+    const kind=Object.keys(m.groups).find(k=>m.groups[k]!==undefined);
+    if(kind==='ws'||kind==='comment') continue;
+    toks.push({k:kind,v:m.groups[kind]});
+  }
+  toks.push({k:'eof',v:''});
+  return toks;
+}
+
+// ---------------------------------------------------------------------
+// Parser → AST
+// ---------------------------------------------------------------------
+class Parser{
+  constructor(toks){ this.t=toks; this.i=0; }
+  peek(k=0){ return this.t[Math.min(this.i+k,this.t.length-1)]; }
+  next(){ return this.t[this.i++]; }
+  at(v,k=0){ return this.peek(k).v===v; }
+  atK(kind,k=0){ return this.peek(k).k===kind; }
+  expect(v){ const t=this.next(); if(t.v!==v) throw new SyntaxError(`expected '${v}', got '${t.v||'EOF'}'`); return t; }
+
+  document(){
+    const doc={pragmas:[],items:[]};
+    while(this.atK('pragma')){
+      const p=this.next();
+      if(p.v==='%%retract'){
+        const m=p.rest.match(/\((\d+)\)/); doc.items.push({type:'retract',n:m?+m[1]:1});
+      } else doc.pragmas.push({name:p.v,rest:p.rest});
+    }
+    if(this.at('@')&&this.at('entities',1)) doc.entities=this.entities();
+    while(!this.atK('eof')){
+      if(this.atK('pragma')){
+        const p=this.next();
+        if(p.v==='%%retract'){ const m=p.rest.match(/\((\d+)\)/); doc.items.push({type:'retract',n:m?+m[1]:1}); }
+        else doc.pragmas.push({name:p.v,rest:p.rest});
+        continue;
+      }
+      doc.items.push(this.item());
+    }
+    return doc;
+  }
+  entities(){
+    this.expect('@'); this.expect('entities'); this.expect('{');
+    const list=[];
+    while(!this.at('}')){
+      const name=this.next().v; let cls=null,zone=null;
+      if(this.at(':')){ this.next(); cls=this.next().v; }
+      if(this.at('@')){ this.next(); zone=this.next().v; }
+      if(this.at(',')) this.next();
+      list.push({name,cls,zone});
+    }
+    this.expect('}');
+    return list;
+  }
+  item(){
+    const t=this.peek();
+    if(t.v==='[') return this.span();
+    if(t.v==='par') return this.parblock();
+    if(t.v==='rs'&&this.at('(',1)) return this.roleshift();
+    if(t.v==='def') return this.definition();
+    if(t.v==='buoy') return this.buoy();
+    if(t.v==='release'&&this.at('(',1)){ this.next(); this.expect('('); const n=this.next().v; this.expect(')'); return {type:'release',name:n}; }
+    if(t.k==='dbar'){ this.next(); return {type:'boundary',major:true}; }
+    if(t.v==='|'){ this.next(); return {type:'boundary',major:false}; }
+    return this.token();
+  }
+  span(){
+    this.expect('['); const key=this.next().v; this.expect(']'); this.expect('{');
+    const items=[];
+    while(!this.at('}')) items.push(this.item());
+    this.expect('}');
+    return {type:'span',key,items};
+  }
+  roleshift(){
+    this.next(); this.expect('('); const ref=this.refExpr(); this.expect(')'); this.expect('{');
+    let affect=null; const items=[];
+    while(!this.at('}')){
+      if(this.at('affect')&&this.at(':',1)){ this.next(); this.next(); affect=this.next().v; continue; }
+      items.push(this.item());
+    }
+    this.expect('}');
+    return {type:'rs',ref,affect,items};
+  }
+  buoy(){
+    this.next(); const name=this.next().v; this.expect(':'); const sign=this.next().v; this.expect('{');
+    const binds=[];
+    while(!this.at('}')){
+      this.expect('!'); this.expect('est'); this.expect('(');
+      const ent=this.next().v; this.expect('@'); this.expect('finger'); this.expect('(');
+      const fin=+this.next().v; this.expect(')'); this.expect(')');
+      binds.push({name:ent,finger:fin});
+    }
+    this.expect('}');
+    return {type:'buoy',name,sign,binds};
+  }
+  parblock(){
+    this.next(); let dur=null;
+    if(this.atK('num')){ const d=this.next().v; dur=parseFloat(d); }
+    this.expect('{');
+    const stmts=[];
+    while(!this.at('}')){
+      let chan=this.next().v; let offset=0;
+      if(this.at('+')){ this.next(); offset=parseFloat(this.next().v); }
+      this.expect(':');
+      stmts.push({chan,offset,...this.chanValue()});
+    }
+    this.expect('}');
+    return {type:'par',dur,stmts};
+  }
+  chanValue(){
+    // returns {value, sufs}
+    const sufs=[];
+    let value;
+    const t=this.peek();
+    if(t.v==='~'){ this.next(); const k=this.next().v; value={kind:'hold-only'}; sufs.push({key:k,args:[]}); }
+    else if((t.v==='cl'||t.v==='sign')&&this.at('{',1)){ const kind=this.next().v; value={kind,block:this.fieldBlock()}; }
+    else if(t.v==='follow'){ this.next(); this.expect('('); const c=this.next().v; this.expect(')'); value={kind:'follow',chan:c}; }
+    else if(t.v==='morpheme'||this.at('(',1)){ value={kind:'nmprim',call:this.call()}; }
+    else { const tok=this.token(); value={kind:'token',token:tok}; }
+    while(this.at('~')){ this.next(); const k=this.next().v; let args=[]; if(this.at('(')){ args=this.rawParen(); } sufs.push({key:k,args}); }
+    return {value,sufs};
+  }
+  fieldBlock(){
+    this.expect('{');
+    const FIELDS=new Set(['hands','hs','orient','loc','mv','nm']); // §13.1(4) closed set
+    const fields={};
+    while(!this.at('}')){
+      const key=this.next().v;
+      if(!FIELDS.has(key)) throw new SyntaxError(`unknown phonetic fieldkey '${key}'`);
+      this.expect(':');
+      const toks=[];
+      while(!this.at('}') && !(FIELDS.has(this.peek().v)&&this.at(':',1))){
+        toks.push(this.next());
+      }
+      fields[key]=toks;
+    }
+    this.expect('}');
+    return fields;
+  }
+  call(){ // ident(args) → {name, pos:[], kw:{}}
+    const name=this.next().v; const out={name,pos:[],kw:{}};
+    if(!this.at('(')) return out;
+    this.next();
+    while(!this.at(')')){
+      if(this.at(',')){ this.next(); continue; }
+      const a=this.next();
+      if(this.at(':')){ this.next();
+        if(this.at('[')){ // list value
+          this.next(); const lst=[];
+          while(!this.at(']')){ if(this.at(',')){this.next();continue;} lst.push(this.next().v); }
+          this.next(); out.kw[a.v]=lst;
+        } else {
+          let v=this.next().v;
+          out.kw[a.v]=v;
+        }
+      } else out.pos.push(a.v);
+    }
+    this.next();
+    return out;
+  }
+  rawParen(){
+    const out=[]; this.expect('(');
+    let depth=1;
+    while(depth>0){
+      const t=this.next();
+      if(t.v==='(') depth++;
+      else if(t.v===')'){ depth--; if(!depth) break; }
+      if(depth>0 && t.v!==',') out.push(t.v);
+    }
+    return out;
+  }
+  refExpr(){ // ref {+ ref}
+    const atoms=[this.next().v];
+    while(this.at('+')){ this.next(); atoms.push(this.next().v); }
+    if(atoms.length>3) throw new SyntaxError('compound reference: max three atoms');
+    return atoms;
+  }
+  token(){
+    let stress=false;
+    if(this.at('!') && !(this.at('est',1)&&this.at('(',2))){ this.next(); stress=true; } // §13.1(3)
+    const t=this.peek();
+    let node;
+    if(t.v==='ix'||t.v==='poss'||t.v==='hon'){
+      const kind=this.next().v; this.expect('('); const ref=this.refExpr(); this.expect(')');
+      node={type:'token',kind,ref};
+    } else if(t.v==='fs'){
+      this.next(); const s=this.next(); if(s.k!=='string') throw new SyntaxError('fs needs a "string"');
+      node={type:'token',kind:'fs',text:s.v.slice(1,-1),lexical:false};
+      if(this.at('~')&&this.at('lexical',1)){ this.next(); this.next(); node.lexical=true; }
+    } else if(t.v==='num'&&this.at('(',1)){
+      this.next(); this.expect('(');
+      const v=parseFloat(this.next().v); let unit=null;
+      if(this.at(',')){ this.next(); this.expect('unit'); this.expect(':'); unit=this.next().v; }
+      this.expect(')');
+      node={type:'token',kind:'num',value:v,unit};
+    } else if(t.k==='ident'&&/^[A-Z][A-Z0-9-]*$/.test(t.v)){
+      node={type:'token',kind:'sign',id:this.next().v};
+    } else {
+      throw new SyntaxError(`unexpected '${t.v||'EOF'}'`);
+    }
+    node.stress=stress; node.infl=[]; node.sufs=[]; node.est=null;
+    // inflections + establishment + suffixes
+    for(;;){
+      if(this.at(':')&&this.peek(1).k==='ident'){
+        this.next(); const key=this.next().v;
+        let args={pos:[],kw:{}};
+        if(this.at('(')) args=this.inflArgs(key);
+        const seen=node.infl.find(x=>x.key===key);
+        if(seen) throw new SyntaxError(`modifier :${key} repeated in one chain`);
+        node.infl.push({key,args});
+      } else if(this.at('!')&&this.at('est',1)&&this.at('(',2)){
+        this.next(); this.next(); this.expect('(');
+        const name=this.next().v; let cls=null,at=null,finger=null;
+        if(this.at(':')){ this.next(); cls=this.next().v; }
+        this.expect('@');
+        if(this.at('finger')){ this.next(); this.expect('('); finger=+this.next().v; this.expect(')'); }
+        else at=this.next().v;
+        this.expect(')');
+        node.est={name,cls,at,finger};
+      } else if(this.at('~')){
+        this.next(); const key=this.next().v; let args=[];
+        if(this.at('(')) args=this.rawParen();
+        node.sufs.push({key,args});
+      } else break;
+    }
+    return node;
+  }
+  inflArgs(key){
+    this.expect('(');
+    const out={pos:[],kw:{}};
+    if(key==='dir'){
+      out.from=this.refExpr();
+      if(this.atK('arrow')){ this.next();
+        if(this.at('each')){ this.next(); this.expect('('); out.each=[];
+          while(!this.at(')')){ if(this.at(',')){this.next();continue;} out.each.push(this.next().v); }
+          this.next();
+        } else out.to=this.refExpr();
+      }
+      this.expect(')');
+      return out;
+    }
+    while(!this.at(')')){
+      if(this.at(',')){ this.next(); continue; }
+      out.pos.push(this.next().v);
+    }
+    this.next();
+    return out;
+  }
+  definition(){
+    this.next(); const id=this.next().v;
+    if(!this.at('sign')) throw new SyntaxError('def expects sign{...}');
+    this.next();
+    return {type:'def',id,block:this.fieldBlock()};
+  }
+}
+
+function parseLarry(src){
+  const doc=new Parser(tokenize(src)).document();
+  // header checks
+  const p0=doc.pragmas.find(p=>p.name==='%lry');
+  if(!p0) throw new SyntaxError('missing required %lry header');
+  const lang=doc.pragmas.find(p=>p.name==='%lang');
+  if(!lang) throw new SyntaxError('missing required %lang header');
+  doc.tempo=1.5;
+  const tp=doc.pragmas.find(p=>p.name==='%tempo');
+  if(tp){ const m=tp.rest.match(/([\d.]+)sps/); if(m) doc.tempo=parseFloat(m[1]); }
+  doc.handed='right';
+  const hp=doc.pragmas.find(p=>p.name==='%signer');
+  if(hp&&/left/.test(hp.rest)) doc.handed='left';
+  return doc;
+}
+// ---------------------------------------------------------------------
+// asl.v1 profile (spec §10) — inventories are approximations for this
+// proof-of-concept renderer; every articulation is a hypothesis (§14).
+// ---------------------------------------------------------------------
+
+// Handshapes: c=[index,middle,ring,pinky] curl 0..1, s=spread 0..1,
+// t=[thumbCurl, thumbAbduct(out) 0..1, oppose 0..1], b=base-knuckle bend
+const HS = {
+  'A':{c:[1,1,1,1],s:0,t:[.2,0,0]}, 'B':{c:[0,0,0,0],s:0,t:[.6,0,.8]},
+  'C':{c:[.45,.45,.45,.45],s:.15,t:[.35,.5,.5]}, 'D':{c:[0,1,1,1],s:0,t:[.4,.2,.7]},
+  'E':{c:[.8,.8,.8,.8],s:0,t:[.7,0,.6]}, 'F':{c:[.55,0,0,0],s:.5,t:[.45,.3,1]},
+  'G':{c:[0,1,1,1],s:0,t:[.1,.4,.3],b:.1}, 'H':{c:[0,0,1,1],s:0,t:[.5,0,.6]},
+  'I':{c:[1,1,1,0],s:0,t:[.4,0,.3]}, 'K':{c:[0,.35,1,1],s:.4,t:[.1,.5,.6]},
+  'L':{c:[0,1,1,1],s:0,t:[0,1,0]}, 'M':{c:[.85,.85,.85,1],s:.1,t:[.8,0,.9]},
+  'N':{c:[.85,.85,1,1],s:.1,t:[.8,0,.9]}, 'O':{c:[.55,.55,.55,.55],s:0,t:[.4,.4,1]},
+  'P':{c:[0,.35,1,1],s:.4,t:[.1,.5,.6]}, 'Q':{c:[0,1,1,1],s:0,t:[.1,.4,.3],b:.4},
+  'R':{c:[0,0,1,1],s:-.2,t:[.5,0,.6]}, 'S':{c:[1,1,1,1],s:0,t:[.6,0,.9]},
+  'T':{c:[.8,1,1,1],s:0,t:[.5,.1,.8]}, 'U':{c:[0,0,1,1],s:0,t:[.5,0,.6]},
+  'V':{c:[0,0,1,1],s:.5,t:[.5,0,.6]}, 'W':{c:[0,0,0,1],s:.5,t:[.6,0,.8]},
+  'X':{c:[.55,1,1,1],s:0,t:[.5,0,.4]}, 'Y':{c:[1,1,1,0],s:.3,t:[0,1,0]},
+  'Z':{c:[0,1,1,1],s:0,t:[.4,.2,.6]},
+  '1':{c:[0,1,1,1],s:0,t:[.5,0,.6]}, '3':{c:[0,0,1,1],s:.5,t:[0,1,0]},
+  '4':{c:[0,0,0,0],s:.6,t:[.7,0,.9]}, '5':{c:[0,0,0,0],s:.7,t:[0,.9,0]},
+  '7':{c:[0,0,.55,0],s:.4,t:[.4,.2,1]}, '8':{c:[0,.55,0,0],s:.4,t:[.4,.2,1]},
+  'open-A':{c:[1,1,1,1],s:0,t:[0,.9,0]}, 'open-B':{c:[0,0,0,0],s:.15,t:[0,.7,0]},
+  'bent-B':{c:[.1,.1,.1,.1],s:.1,t:[.3,.3,.4],b:.75}, 'flat-B':{c:[0,0,0,0],s:0,t:[.6,0,.8]},
+  'open-8':{c:[0,.45,0,0],s:.5,t:[.2,.5,.4]}, 'bent-V':{c:[.55,.55,1,1],s:.45,t:[.5,0,.6]},
+  'bent-3':{c:[.5,.5,1,1],s:.5,t:[0,.9,0]}, 'claw-5':{c:[.45,.45,.45,.45],s:.65,t:[.35,.7,.3]},
+  'claw-3':{c:[.45,.45,1,1],s:.5,t:[.2,.8,.2]}, 'flat-O':{c:[.5,.5,.5,.5],s:0,t:[.35,.3,1],b:.55},
+  'baby-O':{c:[.6,1,1,1],s:0,t:[.45,.2,1]}, 'small-C':{c:[.55,.6,1,1],s:0,t:[.4,.4,.6]},
+  'flat-C':{c:[.35,.35,.35,.35],s:.1,t:[.3,.5,.5],b:.4}, 'G-angle':{c:[0,1,1,1],s:0,t:[.1,.5,.3],b:.5},
+  'horns':{c:[0,1,1,0],s:.3,t:[.5,0,.5]}, 'ILY':{c:[0,1,1,0],s:.4,t:[0,1,0]},
+  'R-crossed':{c:[0,0,1,1],s:-.2,t:[.5,0,.6]}, 'S-tense':{c:[1,1,1,1],s:0,t:[.65,0,.95]},
+  '1-bent':{c:[.5,1,1,1],s:0,t:[.5,0,.6]}, '5-lax':{c:[.2,.2,.2,.2],s:.55,t:[.1,.7,.1]},
+  'rest':{c:[.32,.36,.4,.42],s:.06,t:[.3,.2,.2]}
+};
+// §10.1 aliasing: 2=V, 6=W, 9=F
+HS['2']=HS['V']; HS['6']=HS['W']; HS['9']=HS['F'];
+function hsGet(name, warn){
+  if(HS[name]) return HS[name];
+  if(warn) warn(`unknown handshape '${name}' — using 5-lax`);
+  return HS['5-lax'];
+}
+
+// Signing space (§2.4). Signer-local: x+ = ipsi. World: character faces +z,
+// so ipsi (right side, right-handed) = world -x → multiply by IPSI.
+let IPSI=-1; // set from %signer
+const ZX={ipsi:.26,center:0,contra:-.26}, ZY={low:1.06,mid:1.30,high:1.55}, ZZ={near:.34,mid:.47,far:.61};
+function zonePos(zone){
+  const p=zone.split('-');
+  if(zone==='neutral') return [0,1.30,.34];
+  if(p.length===3 && ZX[p[0]]!==undefined && ZY[p[1]]!==undefined && ZZ[p[2]]!==undefined)
+    return [ZX[p[0]]*IPSI, ZY[p[1]], ZZ[p[2]]];
+  return null;
+}
+const ANAT={ // signer-local x multiplied by IPSI at lookup
+  'head-top':[0,1.83,.05],'forehead':[0,1.73,.14],'temple-ipsi':[.09,1.71,.10],
+  'brow':[0,1.695,.145],'eye':[.04,1.675,.14],'nose':[0,1.645,.16],'ear-ipsi':[.115,1.67,.02],
+  'cheek':[.06,1.63,.135],'chin':[0,1.575,.14],'mouth':[0,1.605,.15],'neck':[0,1.49,.11],
+  'shoulder-ipsi':[.20,1.44,.06],'shoulder-contra':[-.20,1.44,.06],'chest-center':[0,1.30,.145],
+  'chest-ipsi':[.10,1.30,.14],'chest-contra':[-.10,1.30,.14],'abdomen':[0,1.13,.13],
+  'upper-arm-ndh':[-.24,1.36,.06],'elbow-ndh':[-.28,1.22,.10],'forearm-ndh':[-.20,1.24,.24],
+  'wrist-back-ndh':[-.13,1.26,.33],'ndh-palm':[-.11,1.27,.36],'ndh-back':[-.11,1.24,.36],
+  'hip-ipsi':[.16,.98,.08]
+};
+function locPos(name, warn){
+  const z=zonePos(name); if(z) return z;
+  const a=ANAT[name]; if(a) return [a[0]*IPSI,a[1],a[2]];
+  if(warn) warn(`unknown location '${name}' — using neutral`);
+  return zonePos('neutral');
+}
+// direction vectors (signer-local words → world)
+function dirVec(word){
+  const parts=String(word).split('+'); let v=[0,0,0];
+  for(const p of parts){
+    const d={up:[0,1,0],down:[0,-1,0],fwd:[0,0,1],back:[0,0,-1],
+             ipsi:[IPSI,0,0],contra:[-IPSI,0,0]}[p];
+    if(d){ v[0]+=d[0];v[1]+=d[1];v[2]+=d[2]; }
+  }
+  const n=Math.hypot(...v)||1; return [v[0]/n,v[1]/n,v[2]/n];
+}
+
+// Non-manual bundles (§10.4)
+const BUNDLES={
+  ynq:{brows:{raise:.8},head:{thrust:.4},eyes:{wide:.3},anticipate:.2,holdLast:.3},
+  whq:{brows:{furrow:.8},head:{tiltF:.3},gaze:'addressee',anticipate:.2},
+  rhq:{brows:{raise:.6},head:{tilt:.4},anticipate:.2},
+  neg:{head:{shake:{amp:.5,hz:2}},brows:{furrow:.3},anticipate:.25},
+  topic:{brows:{raise:.7},head:{pullback:.3},anticipate:.1,holdLast:.3},
+  cond:{brows:{raise:.7},head:{tilt:.3},anticipate:.2}
+};
+// Mouth morphemes (§10.5) → mouth/face params
+const MORPHEMES={
+  mm:{press:.55,widen:.1}, cha:{open:1,widen:.6}, oo:{round:.9,open:.25},
+  th:{open:.3,tongue:.7}, pah:{burst:1,open:.8}, pow:{burst:1,open:.9},
+  cs:{press:.5,squint:.6,shoulderRaise:.3}, puff:{cheeks:1,press:.3},
+  ps:{press:.8,widen:.3}, intense:{press:1,squint:.5}
+};
+// classifier semantic classes (§10.3)
+const CL_CLASS={'vehicle':'3','person-upright':'1','person-by-legs':'bent-V','flat-surface':'open-B',
+  'cylindrical':'C','small-round':'F','mass':'claw-5','crowd':'claw-5','thin-wire':'I','place':null};
+
+// ---------------------------------------------------------------------
+// Sign dictionary — phonetic entries in the shape of sign{} blocks (§7.1).
+// These are ROUGH approximations authored for the demo; a real dictionary
+// would come from mocap + Deaf review. Fields:
+// hands: 'dh'|'both'|'both-alt'|'both-free', hs / hs2 (transition),
+// palm/fing (orient words), loc / loc2 (path), contact, mv:[{name,...}],
+// nm:{...}, dirVerb:true (agreement path replaces loc)
+// ---------------------------------------------------------------------
+const DICT={};
+function D(id,e){ DICT[id]=e; }
+D('HELLO',{hs:'open-B',palm:'fwd',fing:'up',loc:'temple-ipsi',mv:[{name:'straight',dir:'ipsi+fwd',size:'small'}]});
+D('DEAF',{hs:'1',palm:'back',fing:'up',loc:'ear-ipsi',loc2:'mouth',contact:'light'});
+D('WANT',{hands:'both',hs:'5',hs2:'claw-5',palm:'up',fing:'fwd',loc:'center-mid-mid',mv:[{name:'straight',dir:'back',size:'med'}]});
+D('COFFEE',{hands:'both-free',ndh:{hs:'S',palm:'ipsi',fing:'fwd',loc:'center-mid-near'},hs:'S',palm:'contra',fing:'fwd',loc:'center-mid-near',locAbove:.07,mv:[{name:'circle',plane:'h',size:'small',repeat:2}]});
+D('TOMORROW',{hs:'open-A',palm:'contra',fing:'up',loc:'cheek',mv:[{name:'arc',dir:'fwd',size:'med'}]});
+D('YESTERDAY',{hs:'open-A',palm:'contra',fing:'up',loc:'cheek',mv:[{name:'arc',dir:'back',size:'med'}]});
+D('SNOW',{hands:'both',hs:'5',palm:'down',fing:'fwd',loc:'ipsi-high-mid',mv:[{name:'straight',dir:'down',size:'large'},{name:'wiggle'}]});
+D('SCHOOL',{hands:'both-free',ndh:{hs:'open-B',palm:'up',fing:'fwd',loc:'center-mid-near'},hs:'open-B',palm:'down',fing:'contra',loc:'center-mid-near',locAbove:.09,mv:[{name:'tap',n:2}]});
+D('CLOSE',{hands:'both',hs:'open-B',palm:'fwd',fing:'up',loc:'center-mid-near',locSpread:.18,mv:[{name:'straight',dir:'contra',size:'med'}],mirror:true});
+D('BROTHER',{hs:'L',palm:'contra',fing:'fwd',loc:'forehead',loc2:'chest-center'});
+D('SISTER',{hs:'L',palm:'contra',fing:'fwd',loc:'chin',loc2:'chest-center'});
+D('GIVE',{hs:'flat-O',hs2:'open-B',palm:'up',fing:'fwd',loc:'center-mid-near',dirVerb:true});
+D('WOMAN',{hs:'open-A',hs2:'5',palm:'contra',fing:'up',loc:'chin',loc2:'chest-center'});
+D('LOOK-AT',{hs:'V',palm:'down',fing:'fwd',loc:'eye',dirVerb:true});
+D('SAY',{hs:'1',palm:'back',fing:'up',loc:'mouth',mv:[{name:'circle',plane:'v',size:'small',repeat:2}]});
+D('FINISH',{hands:'both',hs:'5',palm:'up',fing:'up',loc:'center-mid-near',locSpread:.14,mv:[{name:'twist',deg:120}]});
+D('HAVE',{hands:'both',hs:'bent-B',palm:'back',fing:'up',loc:'chest-ipsi',contact:'firm'});
+D('CHOICE',{hs:'F',palm:'contra',fing:'up',loc:'contra-mid-near',loc2:'ipsi-mid-near',mv:[{name:'nod'}]});
+D('TEA',{hands:'both-free',ndh:{hs:'O',palm:'ipsi',fing:'up',loc:'center-mid-near'},hs:'F',palm:'down',fing:'down',loc:'center-mid-near',locAbove:.08,mv:[{name:'circle',plane:'h',size:'small',repeat:2}]});
+D('JUICE',{hs:'I',palm:'contra',fing:'up',loc:'ipsi-mid-near',mv:[{name:'arc',dir:'down',size:'small'},{name:'twist',deg:60}]});
+D('LIKE',{hs:'5',hs2:'open-8',palm:'back',fing:'up',loc:'chest-center',mv:[{name:'straight',dir:'fwd',size:'med'}]});
+D('MOST',{hands:'both',hs:'A',palm:'contra',fing:'up',loc:'center-mid-near',locSpread:.05,mv:[{name:'straight',dir:'up',size:'med'}],dhOnlyMove:true});
+D('LIST-3',{hs:'3',palm:'ipsi',fing:'up',loc:'center-mid-near'});
+D('BOOK',{hands:'both',hs:'open-B',palm:'up',fing:'fwd',loc:'center-mid-near',locSpread:.05,mv:[{name:'pivot',open:60}],mirror:true});
+D('MOTHER',{hs:'5',palm:'contra',fing:'up',loc:'chin',mv:[{name:'tap',n:2}]});
+D('RAIN',{hands:'both',hs:'claw-5',palm:'down',fing:'fwd',loc:'ipsi-high-near',mv:[{name:'straight',dir:'down',size:'med',repeat:2}]});
+D('GO',{hands:'both',hs:'1',palm:'down',fing:'fwd',loc:'center-mid-near',mv:[{name:'arc',dir:'fwd',size:'large'}]});
+D('STORE',{hands:'both',hs:'flat-O',palm:'down',fing:'down',loc:'center-mid-near',mv:[{name:'nod',repeat:2}]});
+D('WHERE',{hs:'1',palm:'fwd',fing:'up',loc:'ipsi-mid-near',mv:[{name:'shake',repeat:3,size:'small'}]});
+D('LIVE',{hands:'both',hs:'open-A',palm:'back',fing:'up',loc:'abdomen',loc2:'chest-center',contact:'brush'});
+D('VISIT',{hands:'both-alt',hs:'V',palm:'back',fing:'up',loc:'center-mid-near',mv:[{name:'circle',plane:'v',size:'med',repeat:2}],dirVerb:true});
+D('EVERY-MONTH',{hands:'both-free',ndh:{hs:'1',palm:'ipsi',fing:'up',loc:'center-mid-near'},hs:'1',palm:'contra',fing:'contra',loc:'center-mid-near',mv:[{name:'straight',dir:'down',size:'med',repeat:2}]});
+D('MONTH',{hands:'both-free',ndh:{hs:'1',palm:'ipsi',fing:'up',loc:'center-mid-near'},hs:'1',palm:'contra',fing:'contra',loc:'center-mid-near',mv:[{name:'straight',dir:'down',size:'med'}]});
+D('WEEK',{hands:'both-free',ndh:{hs:'open-B',palm:'up',fing:'fwd',loc:'center-mid-near'},hs:'1',palm:'down',fing:'fwd',loc:'center-mid-near',locAbove:.03,mv:[{name:'straight',dir:'ipsi',size:'med'}]});
+D('HILL',{hs:'open-B',palm:'down',fing:'fwd',loc:'contra-low-near',mv:[{name:'arc',dir:'ipsi+up',size:'large'}]});
+D('CAR',{hands:'both',hs:'S',palm:'fwd',fing:'up',loc:'center-mid-near',locSpread:.12,mv:[{name:'nod',repeat:2,alt:true}]});
+D('DRIVE',{hands:'both',hs:'S',palm:'fwd',fing:'up',loc:'center-mid-near',locSpread:.12,mv:[{name:'straight',dir:'fwd',size:'med'}]});
+D('DAUGHTER',{hs:'open-B',palm:'up',fing:'contra',loc:'chin',loc2:'contra-low-near'});
+D('SIT',{hands:'both-free',ndh:{hs:'H',palm:'down',fing:'fwd',loc:'center-mid-near'},hs:'bent-B',palm:'down',fing:'fwd',loc:'center-mid-near',locAbove:.05,mv:[{name:'tap',n:1}]});
+D('WAIT',{hands:'both',hs:'5-lax',palm:'up',fing:'fwd',loc:'ipsi-mid-near',mv:[{name:'wiggle'}]});
+D('HOUSE',{hands:'both',hs:'open-B',palm:'contra',fing:'up+contra',loc:'center-high-near',locSpread:.03,mv:[{name:'arc',dir:'down',size:'med'}],mirror:true});
+D('BIG',{hands:'both',hs:'L',palm:'fwd',fing:'fwd',loc:'center-mid-near',locSpread:.06,mv:[{name:'straight',dir:'ipsi',size:'med'}],mirror:true});
+D('READ',{hands:'both-free',ndh:{hs:'open-B',palm:'ipsi',fing:'up',loc:'center-mid-near'},hs:'V',palm:'contra',fing:'contra',loc:'center-mid-near',mv:[{name:'straight',dir:'down',size:'small',repeat:2}]});
+D('NAME',{hands:'both-free',ndh:{hs:'H',palm:'down',fing:'fwd',loc:'center-mid-near'},hs:'H',palm:'down',fing:'contra',loc:'center-mid-near',locAbove:.04,mv:[{name:'tap',n:2}]});
+D('THANK-YOU',{hs:'open-B',palm:'back',fing:'up',loc:'chin',mv:[{name:'straight',dir:'fwd+down',size:'med'}]});
+D('YES',{hs:'S',palm:'fwd',fing:'up',loc:'ipsi-mid-near',mv:[{name:'nod',repeat:2}]});
+D('NO',{hs:'U',hs2:'baby-O',palm:'fwd',fing:'up',loc:'ipsi-mid-near',mv:[{name:'tap',n:2}]});
+D('EAT',{hs:'flat-O',palm:'back',fing:'up',loc:'mouth',mv:[{name:'tap',n:2}]});
+D('PLEASE',{hs:'open-B',palm:'back',fing:'up',loc:'chest-center',mv:[{name:'circle',plane:'v',size:'med'}],contact:'brush'});
+D('DONT-KNOW',{hs:'open-B',palm:'back',fing:'up',loc:'forehead',mv:[{name:'twist',deg:90}]});
+D('SORRY',{hs:'A',palm:'back',fing:'up',loc:'chest-center',mv:[{name:'circle',plane:'v',size:'med'}]});
+D('LIST-4',{hs:'4',palm:'ipsi',fing:'up',loc:'center-mid-near'});
+D('WHO',{hs:'L',palm:'back',fing:'up',loc:'chin',mv:[{name:'wiggle'}]});
+D('WHAT',{hands:'both',hs:'5',palm:'up',fing:'fwd',loc:'center-mid-near',mv:[{name:'shake',repeat:2,size:'small'}]});
+D('SIGN',{hands:'both-alt',hs:'1',palm:'fwd',fing:'up',loc:'center-mid-near',mv:[{name:'circle',plane:'v',size:'med',repeat:2}]});
+D('LEARN',{hands:'both-free',ndh:{hs:'open-B',palm:'up',fing:'fwd',loc:'center-mid-near'},hs:'5',hs2:'flat-O',palm:'down',fing:'down',loc:'center-mid-near',loc2:'forehead'});
+D('FINE',{hs:'5',palm:'contra',fing:'up',loc:'chest-center',mv:[{name:'tap',n:2}]});
+D('GOOD',{hs:'open-B',palm:'back',fing:'up',loc:'chin',loc2:'center-mid-near',mv:[{name:'straight',dir:'fwd+down',size:'small'}]});
+
+// numeral grammar (§10.7) — returns [{hs, mv?, dur}] morphemes + warnings
+function numMorphemes(value, unit, warn){
+  const out=[]; let ok=true;
+  const digitHS=n=>['O','1','2','3','4','5','6','7','8','9'][n];
+  function pushDigit(n,mv){ out.push({hs:digitHS(n),mv:mv||null}); }
+  function twoDigit(v){
+    if(v<=9){ pushDigit(v); return; }
+    if(v===10){ out.push({hs:'open-A',mv:{name:'shake',repeat:2,size:'small'}}); return; }
+    if(v<=15){ pushDigit(v-10,{name:'flick'}); return; }
+    if(v<20){ out.push({hs:'open-A'}); pushDigit(v-10); return; }
+    const t=Math.floor(v/10),o=v%10;
+    if(o===0){ pushDigit(t,{name:'shake',repeat:1,size:'small'}); pushDigit(0); }
+    else { pushDigit(t); out.push({hs:digitHS(o),mv:{name:'straight',dir:'ipsi',size:'small'}}); }
+  }
+  if(!Number.isInteger(value)){
+    if(unit==='dollar'){
+      const d=Math.floor(value), c=Math.round((value-d)*100);
+      twoDigit(d); out.push({hs:out[out.length-1].hs,mv:{name:'twist',deg:90}});
+      twoDigit(c);
+      warn(`num(${value}): dollars-and-cents realization is approximate`);
+      return out;
+    }
+    ok=false;
+  } else if(value>=1000 && value<=2099){ // year: paired compound
+    twoDigit(Math.floor(value/100)); twoDigit(value%100);
+  } else if(value>=0&&value<=99){ twoDigit(value); }
+  else if(value>=100&&value<=999){ pushDigit(Math.floor(value/100)); out.push({hs:'C'}); twoDigit(value%100); }
+  else ok=false;
+  if(!ok){ // §10.7: fall back to digit fingerspelling WITH warning — never silent
+    warn(`num(${value}) not natively realizable in asl.v1 — falling back to digit fingerspelling`);
+    for(const ch of String(value)) if(/\d/.test(ch)) pushDigit(+ch);
+    return out;
+  }
+  if(unit==='dollar') out.push({hs:out[out.length-1].hs,mv:{name:'twist',deg:90}});
+  else if(unit==='percent') out.push({hs:'O',mv:{name:'straight',dir:'ipsi+up',size:'small'}});
+  else if(unit==='age'){ out.unshift({hs:'1',loc:'chin'}); }
+  else if(unit==='oclock'){ out.push({hs:out[out.length-1].hs,mv:{name:'shake',repeat:1,size:'small'}}); }
+  else if(unit==='ordinal'){ out.push({hs:out[out.length-1].hs,mv:{name:'twist',deg:90}}); }
+  else if(unit) warn(`num unit '${unit}' not implemented — signed as plain number`);
+  return out;
+}
+// ---------------------------------------------------------------------
+// Compiler: AST → beat-timed multi-channel score (§8)
+// ---------------------------------------------------------------------
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  lerp:(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t],
+  len:a=>Math.hypot(a[0],a[1],a[2]),
+  norm(a){const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];}
+};
+const CHEST=[0,1.32,.13];
+function clampReach(p){
+  const d=v3.sub(p,CHEST), l=v3.len(d);
+  return l>.58 ? v3.add(CHEST,v3.scale(d,.58/l)) : p.slice();
+}
+
+function parseCalls(toks, warn){
+  // token stream → [{name,pos:[],kw:{}}], skipping '+' composition marks
+  const out=[]; let i=0;
+  const V=k=>toks[k]?toks[k].v:undefined;
+  while(i<toks.length){
+    if(V(i)==='+'||V(i)===','){ i++; continue; }
+    const name=V(i++);
+    const call={name,pos:[],kw:{}};
+    if(V(i)==='('){
+      i++; let depth=1; let key=null; let list=null;
+      while(i<toks.length&&depth>0){
+        const t=V(i);
+        if(t==='('){depth++;i++;continue;}
+        if(t===')'){depth--;i++;continue;}
+        if(t===','){i++;key=null;continue;}
+        if(t==='['){ list=[]; i++; continue; }
+        if(t===']'){ if(key)call.kw[key]=list; list=null; i++; continue; }
+        if(toks[i+1]&&V(i+1)===':'&&list===null){ key=t; i+=2; continue; }
+        if(t==='->'){ i++; call.arrow=true; continue; }
+        if(list!==null) list.push(t);
+        else if(key!==null){ call.kw[key]=t; key=null; }
+        else call.pos.push(t);
+        i++;
+      }
+    }
+    out.push(call);
+  }
+  return out;
+}
+
+// interpret a sign{}/cl{} field block into a dictionary-style entry
+function interpretBlock(fields, warn){
+  const e={mv:[]};
+  const V=t=>t.v;
+  if(fields.hands){
+    const s=fields.hands.map(V).join(' ');
+    if(/both/.test(s)) e.hands = /alt/.test(s)?'both-alt':'both';
+    else if(/ndh/.test(s)) e.hands='ndh';
+  }
+  if(fields.hs){
+    const parts=fields.hs.map(V).filter(x=>x!=='@'&&x!=='mv.end');
+    const gi=parts.indexOf('>');
+    if(gi>=0){ e.hs=parts[gi-1]; e.hs2=parts[gi+1]; }
+    else e.hs=parts[0];
+  }
+  if(fields.orient){
+    for(const c of parseCalls(fields.orient,warn)){
+      if(c.name==='palm') e.palm=c.pos[0]||'fwd';
+      if(c.name==='fingers') e.fing=c.pos[0]||'up';
+    }
+    if(e.palm==='contact') e.palm='contra';
+  }
+  if(fields.loc){
+    const parts=fields.loc.map(V);
+    const ai=parts.indexOf('->');
+    const calls=parseCalls(fields.loc,warn);
+    const names=parts.filter(x=>/^[a-z][a-z0-9-]*$/.test(x)&&x!=='contact');
+    if(ai>=0&&names.length>=2){ e.loc=names[0]; e.loc2=names[1]; }
+    else e.loc=names[0];
+    const con=calls.find(c=>c.name==='contact'); if(con) e.contact=con.pos[0];
+  }
+  if(fields.mv){
+    const calls=parseCalls(fields.mv,warn);
+    let cur=null;
+    const MOVES=new Set(['straight','arc','circle','zigzag','spiral','path','wiggle','flick','open','close','twist','nod','tap','rub','shake','pivot']);
+    const PARAMS=new Set(['size','speed','repeat','alt','end','tension']);
+    for(const c of calls){
+      if(MOVES.has(c.name)){
+        cur={name:c.name};
+        if(c.pos[0]) cur.dir=c.pos[0];
+        Object.assign(cur,c.kw);
+        if(c.name==='tap') cur.n=+(c.pos[0]||1);
+        if(c.name==='twist') cur.deg=parseFloat(c.pos[0]||90);
+        if(c.name==='pivot') cur.open=parseFloat(c.kw.open||60);
+        e.mv.push(cur);
+      } else if(PARAMS.has(c.name)&&cur){
+        if(c.name==='repeat') cur.repeat=+(c.pos[0]||2);
+        else if(c.name==='alt') cur.alt=true;
+        else cur[c.name]=c.pos[0];
+      } else if(c.name==='alt'&&cur) cur.alt=true;
+      else if(warn) warn(`mv: unrecognized '${c.name}' ignored`);
+    }
+  }
+  if(fields.nm){
+    e.nm=parseCalls(fields.nm,warn);
+  }
+  return e;
+}
+
+function compile(doc){
+  const warns=[], errs=[];
+  const warn=m=>warns.push(m);
+  IPSI = doc.handed==='left' ? 1 : -1;
+  const score={segs:{dh:[],ndh:[]},spans:[],nmOver:[],torso:[],gazeSegs:[],affect:[],labels:[],
+               warnings:warns,errors:errs,tempo:doc.tempo,handed:doc.handed};
+  const dict=Object.assign({},DICT);
+  let tb=0; // beat cursor
+  const registry={}; // name → {pos, cls, refd, zone, finger}
+  let buoyLive=null;
+  const chunkMarks=[]; // for %%retract
+  function snapshot(){
+    return {tb,counts:{dh:score.segs.dh.length,ndh:score.segs.ndh.length,
+      spans:score.spans.length,nm:score.nmOver.length,torso:score.torso.length,
+      gaze:score.gazeSegs.length,labels:score.labels.length,affect:score.affect.length},
+      registry:JSON.parse(JSON.stringify(registry)),buoyLive:buoyLive?{...buoyLive}:null};
+  }
+  // pre-bound entities
+  if(doc.entities) for(const en of doc.entities){
+    registry[en.name]={pos:en.zone?clampReach(locPos(en.zone,warn)):null,cls:en.cls,refd:false,zone:en.zone,declared:true};
+  }
+  const RESERVED={'1p':()=>[0,1.32,.15],'2p':()=>[0,1.5,.9],'3p-any':()=>[.3*IPSI,1.35,.55]};
+  function refPos(atoms,use){
+    const pts=[];
+    for(const a of atoms){
+      if(RESERVED[a]){ pts.push(RESERVED[a]()); continue; }
+      const r=registry[a];
+      if(!r||(!r.pos&&!r.fingerPos)){ errs.push(`reference to '${a}' before establishment (§6) — rendered at neutral`); pts.push(zonePos('neutral')); continue; }
+      r.refd=true;
+      pts.push(r.fingerPos||r.pos);
+    }
+    let p=[0,0,0]; for(const q of pts) p=v3.add(p,q);
+    return v3.scale(p,1/pts.length);
+  }
+  function doEst(est,label){
+    if(est.finger!=null){
+      if(!buoyLive){ errs.push(`!est at finger(${est.finger}) with no live buoy`); return; }
+      const fp=buoyFinger(est.finger);
+      registry[est.name]={pos:fp,fingerPos:fp,cls:est.cls,refd:false,zone:null};
+      return;
+    }
+    const zone=est.at;
+    for(const k in registry){
+      const r=registry[k];
+      if(k!==est.name&&r.zone===zone&&r.pos){
+        if(r.refd) warn(`!est(${est.name} @ ${zone}) evicts referenced entity '${k}' — lint error per §4.2 (rebinding anyway)`);
+        r.zone=null; r.pos=null;
+      }
+    }
+    const prev=registry[est.name];
+    registry[est.name]={pos:clampReach(locPos(zone,warn)),cls:est.cls||(prev&&prev.cls),refd:false,zone};
+  }
+  function buoyFinger(n){
+    if(!buoyLive) return zonePos('neutral');
+    const b=buoyLive.loc;
+    return [b[0], b[1]+.07-(n-1)*.035, b[2]+.05];
+  }
+  function beatScale(sufs,stress){
+    let m=1, hold=0;
+    for(const s of sufs||[]){
+      if(s.key==='fast') m*=.7;
+      else if(s.key==='slow') m*=1.5;
+      else if(s.key==='hold') hold+=parseFloat(s.args[0]||1);
+      else if(s.key!=='tense'&&s.key!=='lax'&&s.key!=='lexical'&&s.key!=='hold-only') warn(`suffix ~${s.key} not implemented`);
+    }
+    return {m,hold};
+  }
+  function emit(hand,seg){ score.segs[hand].push(seg); return seg; }
+  function mirrorX(p){ return [-p[0],p[1],p[2]]; }
+
+  function resolveLoc(name,above){
+    const p=clampReach(locPos(name,warn));
+    if(above) p[1]+=above;
+    return p;
+  }
+
+  function compileSignLike(entry, node, dur0, label, ctx){
+    // returns beats consumed
+    const stress=node&&node.stress;
+    const {m,hold}=beatScale(node?node.sufs:[],stress);
+    let dur=dur0*m;
+    let amp=stress?1.35:1, tense=stress?1:0;
+    for(const s of (node?node.sufs:[])) if(s.key==='tense') tense=1;
+    let hsA=entry.hs?hsGet(entry.hs,warn):HS['5-lax'];
+    let hsB=entry.hs2?hsGet(entry.hs2,warn):null;
+    let locA=entry.loc?resolveLoc(entry.loc,entry.locAbove):zonePos('neutral');
+    let locB=entry.loc2?resolveLoc(entry.loc2,0):null;
+    let mv=(entry.mv||[]).map(x=>({...x}));
+    let palm=entry.palm||'fwd', fing=entry.fing||'up';
+    let hands=entry.hands||'dh';
+    let contact=entry.contact;
+    let nmTok=null;
+    let eachTargets=null;
+    if(node) for(const inf of node.infl){
+      if(inf.key==='dir'){
+        const from=refPos(inf.args.from,'dir');
+        locA=clampReach(from);
+        if(inf.args.each){ eachTargets=inf.args.each.map(e=>clampReach(refPos([e],'dir'))); }
+        else if(inf.args.to){ locB=clampReach(refPos(inf.args.to,'dir')); }
+        if(!entry.dirVerb) warn(`:dir on non-directional sign '${label}' — rendered as path anyway`);
+        mv=mv.filter(x=>x.name!=='tap');
+      } else if(inf.key==='loc'){
+        locA=resolveLoc(inf.args.pos[0]); locB=null;
+      } else if(inf.key==='asp'){
+        const a=inf.args.pos[0];
+        if(a==='iter'){ mv.forEach(x=>x.repeat=(x.repeat||1)*3); dur*=1.8; }
+        else if(a==='cont'){ mv.push({name:'circle',plane:'v',size:'small',repeat:2}); dur*=2; }
+        else if(a==='habit'){ mv.forEach(x=>x.repeat=(x.repeat||1)*2); dur*=1.5; }
+        else if(a==='delayed'){ dur+=0.6; }
+        else if(a==='intense'){ tense=1; amp*=1.4; nmTok={mouth:MORPHEMES.intense}; dur*=1.3; }
+      } else if(inf.key==='num'){
+        const n=inf.args.pos[0];
+        hsA=hsGet(String(n),warn);
+      } else if(inf.key==='size'){ amp*=parseFloat(inf.args.pos[0]||1); }
+      else if(inf.key==='recip'){ hands='both-alt'; }
+      else warn(`modifier :${inf.key} not implemented — ignored`);
+    }
+    const t0=tb, t1=tb+dur;
+    const mk=(la,lb)=>({t0,t1:t1+hold,hsA,hsB,palm,fing,locA:la,locB:lb,mv,amp,tense,stress,contact,label});
+    if(eachTargets){
+      const n=eachTargets.length, step=(dur)/n;
+      for(let i=0;i<n;i++){
+        emit('dh',{t0:tb+i*step,t1:tb+(i+1)*step,hsA,hsB,palm,fing,
+          locA:i===0?locA:eachTargets[i-1],locB:eachTargets[i],mv:[],amp,tense,stress,label});
+      }
+    } else if(hands==='dh'){ emit('dh',mk(locA,locB)); }
+    else if(hands==='ndh'){
+      if(buoyLive){ warn(`ndh sign while buoy live — skipped (§5.7)`); }
+      else emit('ndh',mk(mirrorX(locA),locB?mirrorX(locB):null));
+    } else { // both variants
+      const spread=entry.locSpread||0;
+      const la=v3.add(locA,[IPSI*spread,0,0]), lb=locB?v3.add(locB,[IPSI*spread,0,0]):null;
+      emit('dh',mk(la,lb));
+      if(buoyLive){ warn(`two-handed '${label}' while buoy live — dominant hand only (§5.7)`); }
+      else if(entry.ndh){ // both-free: explicit ndh spec
+        const ne=entry.ndh;
+        emit('ndh',{t0,t1:t1+hold,hsA:hsGet(ne.hs,warn),hsB:null,palm:ne.palm,fing:ne.fing,
+          locA:mirrorX(resolveLoc(ne.loc,0)),locB:null,mv:[],amp:1,tense,mirror:true,label});
+      } else if(!entry.dhOnlyMove){
+        const nseg=mk(mirrorX(la),lb?mirrorX(lb):null);
+        nseg.mirror=true;
+        if(hands==='both-alt') nseg.phase=.5;
+        emit('ndh',nseg);
+      } else {
+        emit('ndh',{t0,t1:t1+hold,hsA,hsB:null,palm,fing,locA:mirrorX(la),locB:null,mv:[],amp:1,tense,mirror:true,label});
+      }
+    }
+    if(nmTok) score.nmOver.push({t0,t1:t1+hold,rung:4,params:nmTok});
+    if(label) score.labels.push({t0,t1:t1+hold,text:(stress?'!':'')+label});
+    if(node&&node.est) doEst(node.est,label);
+    return dur+hold;
+  }
+
+  function compilePointing(node,kind,ctx){
+    const target=refPos(node.ref.map(a=>ctx.remap[a]||a),kind);
+    const {m,hold}=beatScale(node.sufs,node.stress);
+    const dur=.5*m;
+    const dirTo=v3.norm(v3.sub(target,CHEST));
+    const handPos=clampReach(v3.add(CHEST,v3.scale(dirTo,.34)));
+    const hs= kind==='ix'?'1' : kind==='poss'?'flat-B' : 'open-B';
+    emit('dh',{t0:tb,t1:tb+dur+hold,hsA:hsGet(hs),hsB:null,
+      palm:kind==='poss'?null:'down',fing:null,aimAt:target,
+      locA:handPos,locB:null,mv:[],amp:1,tense:0,stress:node.stress,
+      label:null});
+    const txt=kind+'('+node.ref.join('+')+')';
+    score.labels.push({t0:tb,t1:tb+dur+hold,text:txt});
+    score.gazeSegs.push({t0:tb,t1:tb+dur+hold,target});
+    if(node.est) doEst(node.est,txt);
+    return dur+hold;
+  }
+
+  function compileFS(node){
+    const letters=node.text.toUpperCase().split('').filter(ch=>/[A-Z0-9&-]/.test(ch));
+    const per=node.lexical? 1.5/Math.max(letters.length,1) : .4;
+    const base=resolveLoc('ipsi-high-near'); base[1]-=.12;
+    let prev=null;
+    const T0=tb;
+    letters.forEach((ch,i)=>{
+      const mv=[]; let lp=base.slice();
+      if(prev===ch) mv.push({name:'straight',dir:'ipsi',size:'small'});
+      const hs = HS[ch] ? ch : null;
+      if(!hs) warn(`fingerspelling: no handshape for '${ch}'`);
+      emit('dh',{t0:tb+i*per,t1:tb+(i+1)*per,hsA:hsGet(hs||'5-lax'),hsB:null,palm:'fwd',fing:'up',
+        locA:lp,locB:null,mv,amp:1,tense:0,fsLetter:ch,label:null});
+      prev=ch;
+    });
+    const dur=letters.length*per;
+    score.labels.push({t0:T0,t1:T0+dur,text:'fs-'+node.text});
+    if(node.est) doEst(node.est,'fs-'+node.text);
+    return dur;
+  }
+
+  function compileNum(node){
+    const ms=numMorphemes(node.value,node.unit,warn);
+    const per=.5;
+    const T0=tb;
+    ms.forEach((mo,i)=>{
+      const lp=mo.loc?resolveLoc(mo.loc):v3.add(resolveLoc('ipsi-mid-near'),[0,.06,0]);
+      emit('dh',{t0:tb+i*per,t1:tb+(i+1)*per,hsA:hsGet(mo.hs,warn),hsB:null,palm:'fwd',fing:'up',
+        locA:lp,locB:null,mv:mo.mv?[mo.mv]:[],amp:1,tense:0,label:null});
+    });
+    const dur=ms.length*per;
+    score.labels.push({t0:T0,t1:T0+dur,text:'num('+node.value+(node.unit?', '+node.unit:'')+')'});
+    if(node.est) doEst(node.est,'num');
+    return dur;
+  }
+
+  function walk(items,ctx){
+    for(const it of items){
+      if(it.type==='boundary'){ tb += it.major?1:.5; if(it.major) chunkMarks.push(snapshot()); continue; }
+      if(it.type==='retract'){
+        const n=Math.min(it.n,chunkMarks.length);
+        if(n<it.n) warn(`%%retract(${it.n}): only ${chunkMarks.length} chunks available`);
+        if(n>0){
+          const snap=chunkMarks[chunkMarks.length-n];
+          chunkMarks.length=chunkMarks.length-n;
+          // rollback registry + truncate score of retracted chunks
+          for(const k in registry) delete registry[k];
+          Object.assign(registry,snap.registry);
+          buoyLive=snap.buoyLive;
+          // visible repair (§4.4): hold + corrective headshake, then re-sign
+          const rt=tb;
+          score.nmOver.push({t0:rt,t1:rt+.6,rung:4,params:{head:{shake:{amp:.4,hz:2.5}},brows:{furrow:.3}}});
+          score.labels.push({t0:rt,t1:rt+.6,text:'(correction)'});
+          tb+=.8;
+          warn(`%%retract(${n}): registry rolled back; visible repair rendered (§4.4)`);
+        }
+        continue;
+      }
+      if(it.type==='span'){
+        let bundle=BUNDLES[it.key];
+        if(!bundle && MORPHEMES[it.key]) bundle={mouth:MORPHEMES[it.key],anticipate:.1};
+        if(!bundle){ warn(`unknown span keyword [${it.key}] — contents rendered unmarked`); walk(it.items,ctx); continue; }
+        const t0=tb;
+        walk(it.items,{...ctx,depth:ctx.depth+1});
+        let t1=tb;
+        if(bundle.holdLast){ tb+=bundle.holdLast; t1=tb; }
+        score.spans.push({key:it.key,t0,t1,depth:ctx.depth,bundle});
+        if(it.key==='cond') tb+=.5; // §10.4: cond forces | at close
+        continue;
+      }
+      if(it.type==='rs'){
+        if(ctx.rsDepth>=2) warn('role shift nested deeper than 2 (§5.4) — legal but rare');
+        const target=refPos(it.ref.map(a=>ctx.remap[a]||a),'rs');
+        const t0=tb;
+        const remap={...ctx.remap,'1p':it.ref[0]};
+        if(it.affect) score.affect.push({t0,t1:null,name:it.affect});
+        walk(it.items,{...ctx,rsDepth:ctx.rsDepth+1,remap});
+        const t1=tb;
+        score.torso.push({t0,t1,toward:target,amp:.6});
+        score.gazeSegs.push({t0,t1:t0+.6,target});
+        const aff=score.affect.find(a=>a.t0===t0&&a.t1===null); if(aff) aff.t1=t1;
+        continue;
+      }
+      if(it.type==='par'){ compilePar(it,ctx); continue; }
+      if(it.type==='buoy'){
+        if(buoyLive){ warn(`buoy '${it.name}' raised while '${buoyLive.name}' live — v0.1.1 allows one; releasing previous`); closeBuoy(); }
+        const entry=dict[it.sign];
+        if(!entry) warn(`buoy sign '${it.sign}' unknown — using LIST-${it.binds.length||3} shape`);
+        const hsName=entry?entry.hs:String(Math.min(it.binds.length||3,5));
+        const loc=[-IPSI*.16,1.26,.36];
+        const segIdx=score.segs.ndh.length;
+        emit('ndh',{t0:tb,t1:null,hsA:hsGet(hsName,warn),hsB:null,palm:'ipsi',fing:'up',
+          locA:loc,locB:null,mv:[],amp:1,tense:0,buoy:true,label:'buoy '+it.name});
+        buoyLive={name:it.name,segIdx,loc,sign:it.sign};
+        tb+=1; // raise costs 1b
+        for(const b of it.binds){
+          const fp=buoyFinger(b.finger);
+          registry[b.name]={pos:fp,fingerPos:fp,cls:null,refd:false,zone:null};
+        }
+        score.labels.push({t0:tb-1,t1:tb,text:'buoy: '+it.sign});
+        continue;
+      }
+      if(it.type==='release'){
+        if(!buoyLive||buoyLive.name!==it.name){ warn(`release(${it.name}) with no matching live buoy`); continue; }
+        closeBuoy(); tb+=.5;
+        continue;
+      }
+      if(it.type==='def'){
+        const e=interpretBlock(it.block,warn);
+        dict[it.id]=e;
+        warn(`def ${it.id}: added to dictionary`);
+        continue;
+      }
+      if(it.type==='token'){
+        const remapped = it.ref ? {...it,ref:it.ref.map(a=>ctx.remap[a]||a)} : it;
+        if(it.kind==='sign'){
+          const entry=dict[it.id];
+          if(!entry){
+            // §9.4: unknown token → fingerspell AND warn loudly, never skip
+            warn(`unknown sign '${it.id}' — falling back to fingerspelling (§9.4)`);
+            tb+=compileFS({text:it.id.replace(/-/g,''),lexical:false,est:it.est,sufs:it.sufs,stress:it.stress});
+          } else {
+            tb+=compileSignLike(entry,it,1,it.id,ctx);
+          }
+        }
+        else if(it.kind==='ix'||it.kind==='poss'||it.kind==='hon') tb+=compilePointing(remapped,it.kind,ctx);
+        else if(it.kind==='fs') tb+=compileFS(it);
+        else if(it.kind==='num') tb+=compileNum(it);
+        continue;
+      }
+      warn(`unhandled item type '${it.type}'`);
+    }
+  }
+  function closeBuoy(){
+    const seg=score.segs.ndh[buoyLive.segIdx];
+    if(seg) seg.t1=tb;
+    // un-bind finger entities
+    for(const k in registry) if(registry[k].fingerPos) { registry[k].pos=null; registry[k].fingerPos=null; }
+    buoyLive=null;
+  }
+  function compilePar(it,ctx){
+    const t0=tb;
+    let maxDur=it.dur||0;
+    const pend=[];
+    for(const st of it.stmts){
+      const chan=st.chan;
+      if(chan==='ndh'&&buoyLive){ warn(`par ndh: statement while buoy '${buoyLive.name}' live — lint error (§5.7), skipped`); continue; }
+      if(chan==='dh'||chan==='ndh'){
+        let entry=null,label=null;
+        if(st.value.kind==='cl'||st.value.kind==='sign'){ entry=interpretBlock(st.value.block,warn); label=st.value.kind==='cl'?'cl:'+(entry.hs||'?'):'sign{}'; }
+        else if(st.value.kind==='token'&&st.value.token.kind==='sign'){ entry=dict[st.value.token.id]; label=st.value.token.id;
+          if(!entry){ warn(`par ${chan}: unknown sign '${label}'`); continue; } }
+        else if(st.value.kind==='hold-only'){ pend.push({chan,hold:true,offset:st.offset}); continue; }
+        else { warn(`par ${chan}: unsupported value`); continue; }
+        // build seg without advancing cursor
+        const savedT=tb; tb=t0+st.offset;
+        const before=score.segs[chan==='dh'?'dh':'ndh'].length;
+        const handSave=entry.hands; entry.hands = chan==='ndh'?'ndh':'dh';
+        const d=compileSignLike(entry,{stress:false,infl:[],sufs:st.sufs.filter(s=>s.key!=='hold'),est:null},it.dur||2,label,ctx);
+        entry.hands=handSave;
+        const segs=score.segs[chan==='dh'?'dh':'ndh'];
+        for(let i=before;i<segs.length;i++){
+          if(st.sufs.some(s=>s.key==='hold')) segs[i].holdToBlockEnd=true;
+        }
+        maxDur=Math.max(maxDur,st.offset+d);
+        tb=savedT;
+      } else if(chan==='gaze'){
+        if(st.value.kind==='follow') score.gazeSegs.push({t0,t1:null,follow:st.value.chan,parEnd:true});
+        else if(st.value.kind==='nmprim'){ /* gaze(target) */
+          const tgt=st.value.call.pos[0];
+          const p= tgt==='addressee'?[0,1.55,1.6]: (registry[tgt]&&registry[tgt].pos)||zonePos('neutral');
+          score.gazeSegs.push({t0,t1:null,target:p,parEnd:true});
+        }
+      } else if(chan.startsWith('face')||chan==='head'||chan==='torso'){
+        if(st.value.kind==='nmprim'){
+          const c=st.value.call;
+          const params={};
+          if(c.name==='morpheme'||(chan==='face.mouth'&&MORPHEMES[c.name])){
+            const id=c.pos[0]||c.name;
+            if(MORPHEMES[id]) params.mouth=MORPHEMES[id];
+            else warn(`unknown mouth morpheme '${id}'`);
+          } else if(c.name==='brows') params.brows={[c.pos[0]||'raise']:parseFloat(c.pos[1]||.7)};
+          else if(c.name==='eyes') params.eyes={[c.pos[0]||'wide']:.7};
+          else if(c.name==='cheeks') params.cheeks={[c.pos[0]||'puff']:1};
+          else if(c.name==='head') params.head={[c.pos[0]||'nod']:{amp:.5,hz:2}};
+          else if(c.name==='mouth'){
+            if(c.kw.morpheme&&MORPHEMES[c.kw.morpheme]) params.mouth=MORPHEMES[c.kw.morpheme];
+            else if(c.kw.mouthing) params.mouthing=c.kw.mouthing;
+          }
+          else warn(`par ${chan}: '${c.name}' not implemented`);
+          score.nmOver.push({t0,t1:null,rung:5,params,parEnd:true});
+        }
+      } else if(chan==='affect'){ /* rendered subtly; skip */ }
+      else warn(`par: unknown channel '${chan}'`);
+    }
+    const dur=it.dur||maxDur||2;
+    // close open-ended par overlays
+    for(const o of score.nmOver) if(o.parEnd&&o.t1===null){ o.t1=t0+dur; delete o.parEnd; }
+    for(const g of score.gazeSegs) if(g.parEnd&&g.t1===null){ g.t1=t0+dur; delete g.parEnd; }
+    for(const h of ['dh','ndh']) for(const s of score.segs[h]) if(s.holdToBlockEnd){ s.t1=t0+dur; delete s.holdToBlockEnd; }
+    tb=t0+dur;
+  }
+
+  walk(doc.items,{depth:0,rsDepth:0,remap:{}});
+  if(buoyLive){ warn(`buoy '${buoyLive.name}' never released — auto-released at stream end (§5.7)`); closeBuoy(); }
+  // lint: established but never referenced; near-duplicate names
+  const names=Object.keys(registry);
+  for(const n of names){
+    const r=registry[n];
+    if(!RESERVED[n]&&!r.refd&&(r.zone||r.declared===undefined)) warn(`entity '${n}' established but never referenced`);
+  }
+  for(let i=0;i<names.length;i++) for(let j=i+1;j<names.length;j++){
+    if(editDist1(names[i],names[j])) warn(`entity names '${names[i]}' / '${names[j]}' differ by one edit — possible typo (§6)`);
+  }
+  score.durBeats=tb+1;
+  return score;
+}
+function editDist1(a,b){
+  if(Math.abs(a.length-b.length)>1||a===b) return false;
+  let i=0,j=0,d=0;
+  while(i<a.length&&j<b.length){
+    if(a[i]===b[j]){i++;j++;continue;}
+    d++; if(d>1) return false;
+    if(a.length>b.length) i++; else if(b.length>a.length) j++; else {i++;j++;}
+  }
+  return d+ (a.length-i)+(b.length-j) <= 1;
+}
+//RENDERER_ONLY_BELOW (everything above runs headless under node for tests)
+// ---------------------------------------------------------------------
+// 3D avatar (THREE) — stylized humanoid with articulated fingers + face
+// ---------------------------------------------------------------------
+const stage=document.getElementById('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+stage.insertBefore(renderer.domElement,stage.firstChild);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x14161a);
+const camera=new THREE.PerspectiveCamera(38,1,.1,50);
+let camTheta=0,camPhi=1.42,camR=1.9;
+const CAMTARGET=new THREE.Vector3(0,1.35,0);
+function updateCam(){
+  camera.position.set(CAMTARGET.x+camR*Math.sin(camPhi)*Math.sin(camTheta),
+    CAMTARGET.y+camR*Math.cos(camPhi),
+    CAMTARGET.z+camR*Math.sin(camPhi)*Math.cos(camTheta));
+  camera.lookAt(CAMTARGET);
+}
+updateCam();
+scene.add(new THREE.HemisphereLight(0xd6dde8,0x3d434c,1.0));
+const key=new THREE.DirectionalLight(0xffffff,.8); key.position.set(1.5,3,2.5); scene.add(key);
+const fill=new THREE.DirectionalLight(0xe8edf5,.4); fill.position.set(-1.2,.6,2.8); scene.add(fill);
+const rim=new THREE.DirectionalLight(0x7799ff,.3); rim.position.set(-2,2,-1.5); scene.add(rim);
+
+const SKIN=new THREE.MeshStandardMaterial({color:0xd9a173,roughness:.75});
+const SKIN2=new THREE.MeshStandardMaterial({color:0xcf9468,roughness:.8});
+const SHIRT=new THREE.MeshStandardMaterial({color:0x3c6e8f,roughness:.85});
+const DARK=new THREE.MeshStandardMaterial({color:0x2a2c33,roughness:.6});
+const LIP=new THREE.MeshStandardMaterial({color:0x9c5f52,roughness:.7});
+
+const rig={};
+const root=new THREE.Group(); scene.add(root);
+// torso (pivot at hips)
+const torso=new THREE.Group(); torso.position.set(0,1.0,0); root.add(torso); rig.torso=torso;
+function T(g,x,y,z){ g.position.set(x,y,z); return g; }
+{
+  const bodyGeo=new THREE.CylinderGeometry(.125,.15,.47,24);
+  torso.add(T(new THREE.Mesh(bodyGeo,SHIRT),0,.24,0));
+  const chestGeo=new THREE.SphereGeometry(.14,22,16); const chest=new THREE.Mesh(chestGeo,SHIRT);
+  chest.scale.set(1.18,.8,.82); torso.add(T(chest,0,.44,0));
+  const hips=new THREE.Mesh(new THREE.SphereGeometry(.14,16,12),DARK); hips.scale.set(1.05,.5,.78);
+  torso.add(T(hips,0,-.02,0));
+  const neckM=new THREE.Mesh(new THREE.CylinderGeometry(.04,.052,.14,14),SKIN2);
+  torso.add(T(neckM,0,.49,0));
+}
+// head (pivot at neck ≈ world y 1.5 → torso-local .5)
+const headG=new THREE.Group(); headG.position.set(0,.53,0); torso.add(headG); rig.head=headG;
+{
+  const skull=new THREE.Mesh(new THREE.SphereGeometry(.115,28,22),SKIN);
+  skull.scale.set(.9,1.03,.92); headG.add(T(skull,0,.14,.005));
+  const jaw=new THREE.Mesh(new THREE.SphereGeometry(.09,20,16),SKIN);
+  jaw.scale.set(.72,.66,.68); headG.add(T(jaw,0,.048,.028));
+  const hair=new THREE.Mesh(new THREE.SphereGeometry(.118,28,22,0,Math.PI*2,0,Math.PI*.52),DARK);
+  hair.scale.set(.97,1.08,.96); headG.add(T(hair,0,.15,-.006));
+  const nose=new THREE.Mesh(new THREE.ConeGeometry(.013,.032,10),SKIN2);
+  nose.rotation.x=Math.PI/2; headG.add(T(nose,0,.108,.118));
+  const earG=new THREE.SphereGeometry(.019,10,8);
+  const earL=new THREE.Mesh(earG,SKIN2); earL.scale.set(.55,1,.8); headG.add(T(earL,-.104,.135,.005));
+  const earR=new THREE.Mesh(earG,SKIN2); earR.scale.set(.55,1,.8); headG.add(T(earR,.104,.135,.005));
+  rig.brows=[];
+  for(const s of [-1,1]){
+    const b=new THREE.Mesh(new THREE.BoxGeometry(.04,.007,.011),DARK);
+    b.position.set(s*.045,.168,.108); b.userData.baseY=.168; b.userData.baseX=s*.045; b.userData.s=s;
+    b.rotation.z=s*-.08;
+    headG.add(b); rig.brows.push(b);
+  }
+  rig.eyes=[]; rig.pupils=[];
+  for(const s of [-1,1]){
+    const e=new THREE.Mesh(new THREE.SphereGeometry(.019,14,10),new THREE.MeshStandardMaterial({color:0xf2ede4,roughness:.35}));
+    e.position.set(s*.048,.147,.098); headG.add(e); rig.eyes.push(e);
+    const p=new THREE.Mesh(new THREE.SphereGeometry(.009,10,8),new THREE.MeshStandardMaterial({color:0x35281e,roughness:.4}));
+    p.position.set(0,0,.013); e.add(p); rig.pupils.push(p);
+  }
+  const mouth=new THREE.Mesh(new THREE.BoxGeometry(.052,.011,.012),LIP);
+  mouth.position.set(0,.055,.108); headG.add(mouth); rig.mouth=mouth;
+  const inner=new THREE.Mesh(new THREE.BoxGeometry(.034,.007,.007),new THREE.MeshStandardMaterial({color:0x40201c}));
+  inner.position.set(0,0,-.002); mouth.add(inner);
+  rig.cheeks=[];
+  for(const s of [-1,1]){
+    const c=new THREE.Mesh(new THREE.SphereGeometry(.028,12,10),SKIN2);
+    c.position.set(s*.058,.09,.082); c.scale.setScalar(.35); headG.add(c); rig.cheeks.push(c);
+  }
+}
+// arms + hands. side: -1 = world -x (signer right / dh when right-handed)
+const LU=.26, LF=.24;
+function makeArm(side){
+  const shoulder=new THREE.Group(); shoulder.position.set(side*.175,.455,0); torso.add(shoulder);
+  const upper=new THREE.Mesh(new THREE.CylinderGeometry(.04,.033,LU,14),SHIRT);
+  upper.position.y=-LU/2; shoulder.add(upper);
+  const delt=new THREE.Mesh(new THREE.SphereGeometry(.047,14,10),SHIRT);
+  delt.scale.set(1.1,.95,1); shoulder.add(T(delt,side*.008,-.005,0));
+  const elbow=new THREE.Group(); elbow.position.y=-LU; shoulder.add(elbow);
+  elbow.add(T(new THREE.Mesh(new THREE.SphereGeometry(.034,12,10),SHIRT),0,0,0));
+  const fore=new THREE.Mesh(new THREE.CylinderGeometry(.031,.024,LF,14),SKIN2);
+  fore.position.y=-LF/2; elbow.add(fore);
+  const wrist=new THREE.Group(); wrist.position.y=-LF; elbow.add(wrist);
+  wrist.add(T(new THREE.Mesh(new THREE.SphereGeometry(.027,12,10),SKIN),0,.006,0));
+  const hand=makeHand(side); wrist.add(hand.group);
+  return {shoulder,elbow,wrist,hand,side};
+}
+// hand local: fingers +y, palm faces -z, thumb on +x for side=+1 hand? thumb side = -side*?
+// For the RIGHT hand (world -x side when facing camera) thumb is toward body midline+...
+// Use thumbSide = -side (right hand at side=-1 → thumb +x = toward +x = body's left = midline). Good.
+function makeHand(side){
+  const group=new THREE.Group();
+  const thumbSide=-side;
+  group.scale.setScalar(.92);
+  // palm: slim box + rounded heel and knuckle ridge
+  const palm=new THREE.Mesh(new THREE.BoxGeometry(.055,.066,.019),SKIN);
+  palm.position.set(0,.044,0); group.add(palm);
+  const heel=new THREE.Mesh(new THREE.SphereGeometry(.031,12,10),SKIN);
+  heel.scale.set(1.05,.85,.72); group.add(T(heel,0,.008,0));
+  const knuck=new THREE.Mesh(new THREE.SphereGeometry(.029,12,10),SKIN);
+  knuck.scale.set(1.02,.5,.7); group.add(T(knuck,0,.078,0));
+  const fingers=[];
+  const xs=[.0255,.009,-.0085,-.0245].map(x=>x*thumbSide); // index→pinky
+  const ys=[.082,.086,.083,.076];                          // staggered knuckles
+  const lens=[[.03,.024,.018],[.034,.027,.02],[.031,.025,.019],[.024,.019,.015]];
+  const rads=[.0068,.0072,.0068,.006];
+  for(let i=0;i<4;i++){
+    const f1=new THREE.Group(); f1.position.set(xs[i],ys[i],0); group.add(f1);
+    const segs=[f1]; let parent=f1;
+    for(let j=0;j<3;j++){
+      const l=lens[i][j], r=rads[i]*(1-j*.08);
+      parent.add(T(new THREE.Mesh(new THREE.SphereGeometry(r*1.15,10,8),SKIN),0,0,0)); // joint
+      const m=new THREE.Mesh(new THREE.CylinderGeometry(r*.92,r,l,10),SKIN);
+      m.position.y=l/2; parent.add(m);
+      if(j<2){ const nx=new THREE.Group(); nx.position.y=l; parent.add(nx); segs.push(nx); parent=nx; }
+      else parent.add(T(new THREE.Mesh(new THREE.SphereGeometry(r*.95,10,8),SKIN),0,l,0)); // tip
+    }
+    fingers.push(segs);
+  }
+  // thumb: low on its side, angled across the palm plane
+  const t0=new THREE.Group(); t0.position.set(thumbSide*.03,.024,.008);
+  t0.rotation.set(-.2, thumbSide*.5, thumbSide*-.7);
+  group.add(t0);
+  const tl=[.032,.026], tr=[.0085,.0078];
+  const tsegs=[t0]; let tp=t0;
+  for(let j=0;j<2;j++){
+    tp.add(T(new THREE.Mesh(new THREE.SphereGeometry(tr[j]*1.2,10,8),SKIN),0,0,0));
+    const m=new THREE.Mesh(new THREE.CylinderGeometry(tr[j]*.9,tr[j],tl[j],10),SKIN);
+    m.position.y=tl[j]/2; tp.add(m);
+    if(j<1){ const nx=new THREE.Group(); nx.position.y=tl[j]; tp.add(nx); tsegs.push(nx); tp=nx; }
+    else tp.add(T(new THREE.Mesh(new THREE.SphereGeometry(tr[j],10,8),SKIN),0,tl[j],0));
+  }
+  return {group,fingers,thumb:tsegs,thumbSide};
+}
+function applyHandshape(hand,hs,wig,wigT){
+  const spreadOff=[1.4,.45,-.5,-1.4];
+  for(let i=0;i<4;i++){
+    let c=hs.c[i];
+    if(wig) c=Math.min(1,Math.max(0,c+.22*Math.sin(wigT*9+i*1.7)+.22));
+    const b=hs.b||0;
+    const [f1,f2,f3]=hand.fingers[i];
+    f1.rotation.x=-(c*1.35+b*1.15);
+    f1.rotation.z=hand.thumbSide*spreadOff[i]*.16*hs.s;
+    f2.rotation.x=-(c*1.55);
+    f3.rotation.x=-(c*1.1);
+  }
+  const [tc,ta,to]=hs.t;
+  hand.thumb[0].rotation.z=hand.thumbSide*(-.65-ta*.55);
+  hand.thumb[0].rotation.x=-.15-(to*.8);
+  hand.thumb[1].rotation.x=-(tc*1.1);
+}
+function blendHS(a,b,t){
+  if(!b||t<=0) return a; if(t>=1) return b;
+  return {c:a.c.map((v,i)=>v+(b.c[i]-v)*t), s:a.s+(b.s-a.s)*t,
+    t:a.t.map((v,i)=>v+(b.t[i]-v)*t), b:(a.b||0)+((b.b||0)-(a.b||0))*t};
+}
+const arms={}; // filled per handedness in resetAvatar
+let DH_SIDE=-1;
+function buildArms(){
+  if(arms.dh){ torso.remove(arms.dh.shoulder); torso.remove(arms.ndh.shoulder); }
+  DH_SIDE = IPSI; // world side of dominant hand
+  arms.dh=makeArm(DH_SIDE); arms.ndh=makeArm(-DH_SIDE);
+}
+buildArms();
+
+// ---------------------------------------------------------------------
+// Optional skinned avatar (Ready Player Me — free, Mixamo-compatible rig
+// with finger bones + ARKit face blendshapes). Falls back to the
+// primitive avatar above if the download fails (e.g. offline).
+// ---------------------------------------------------------------------
+// Default: three.js sample character "Xbot" (Mixamo-compatible rig with
+// finger bones; no face blendshapes). Any Mixamo-compatible .glb URL with
+// CORS works — paste one in the model box (e.g. a CC0 Sketchfab character
+// committed to a GitHub repo and served via raw.githubusercontent.com).
+let MODEL_URLS=[
+  // stopgap default: "Robert" from 100Avatars R1 (CC0, Polygonal Mind) — a VRM
+  // with full finger bones + mouth visemes; replace via the model box with your
+  // own VRoid Studio .vrm for full facial grammar (brows!)
+  'https://arweave.net/gwG7w4bY-A5c3R6A6GOz3xBCgbPvkFQmqPIDtvnNsYI',
+  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/models/gltf/Xbot.glb',
+  'https://threejs.org/examples/models/gltf/Xbot.glb'
+];
+try{ const u=localStorage.getItem('larryModelUrl'); if(u) MODEL_URLS.unshift(u); }catch(e){}
+let SK=null;
+const tmpQ2=new THREE.Quaternion();
+function setBoneWorld(bone,qW){
+  const pq=bone.parent.getWorldQuaternion(tmpQ2);
+  bone.quaternion.copy(pq.invert().multiply(qW));
+}
+function makeBasis(y,palm){
+  const Y=y.clone().normalize();
+  let Z=palm.clone().multiplyScalar(-1);
+  Z.sub(Y.clone().multiplyScalar(Y.dot(Z)));
+  if(Z.lengthSq()<1e-5) Z.set(0,0,1).sub(Y.clone().multiplyScalar(Y.z));
+  Z.normalize();
+  const X=new THREE.Vector3().crossVectors(Y,Z);
+  return new THREE.Matrix4().makeBasis(X,Y,Z);
+}
+function findBone(rootObj,name){
+  let r=null;
+  rootObj.traverse(o=>{ if(!r&&o.isBone&&o.name.replace(/^mixamorig:?/i,'')===name) r=o; });
+  return r;
+}
+function buildSkinned(g){
+  const model=g.scene;
+  scene.add(model);
+  model.updateMatrixWorld(true);
+  const wp=o=>o.getWorldPosition(new THREE.Vector3());
+  const wq=o=>o.getWorldQuaternion(new THREE.Quaternion());
+  // VRM 0.x support: humanoid bone map lives in the glTF extension
+  const gjson=g.parser&&g.parser.json;
+  const vrm0=gjson&&gjson.extensions&&gjson.extensions.VRM;
+  let vmap=null;
+  if(vrm0&&vrm0.humanoid&&vrm0.humanoid.humanBones){
+    vmap={};
+    for(const hb of vrm0.humanoid.humanBones){
+      const nd=gjson.nodes[hb.node];
+      if(nd&&nd.name) vmap[hb.bone]=nd.name;
+    }
+  }
+  const V2M={LeftArm:'leftUpperArm',LeftForeArm:'leftLowerArm',LeftHand:'leftHand',
+    RightArm:'rightUpperArm',RightForeArm:'rightLowerArm',RightHand:'rightHand',
+    Head:'head',Neck:'neck',Spine1:'chest',Spine:'spine',LeftEye:'leftEye',RightEye:'rightEye',
+    LeftFoot:'leftFoot',RightFoot:'rightFoot',LeftToeBase:'leftToes',RightToeBase:'rightToes'};
+  function vrmFingerKey(n){
+    const m=n.match(/^(Left|Right)Hand(Thumb|Index|Middle|Ring|Pinky)(\d)$/);
+    if(!m) return null;
+    const fin=m[2]==='Pinky'?'Little':m[2];
+    return m[1].toLowerCase()+fin+['Proximal','Intermediate','Distal'][+m[3]-1];
+  }
+  const B=n=>{
+    if(vmap){
+      const key=V2M[n]||vrmFingerKey(n);
+      if(key&&vmap[key]){ const o=model.getObjectByName(vmap[key]); if(o) return o; }
+    }
+    return findBone(model,n);
+  };
+  // normalize size (chibi/giant models) and facing (+Z toward camera)
+  const bbox=new THREE.Box3().setFromObject(model);
+  const H=bbox.max.y-bbox.min.y;
+  if(H>.3&&(H<1.45||H>2.05)) model.scale.setScalar(1.7/H);
+  model.updateMatrixWorld(true);
+  let facing=0;
+  const eL=B('LeftEye'),eR=B('RightEye'),hd=B('Head');
+  if(eL&&eR&&hd){ const z=(wp(eL).z+wp(eR).z)/2-wp(hd).z; if(Math.abs(z)>.004) facing=z>0?1:-1; }
+  if(!facing){ const ft=B('LeftFoot'),tb=B('LeftToeBase'); if(ft&&tb){ const z=wp(tb).z-wp(ft).z; if(Math.abs(z)>.008) facing=z>0?1:-1; } }
+  if(facing<0){ model.rotation.y=Math.PI; }
+  model.updateMatrixWorld(true);
+  const morphMeshes=[];
+  model.traverse(o=>{ if(o.isMesh){ o.frustumCulled=false; if(o.morphTargetDictionary) morphMeshes.push(o); } });
+  if(!morphMeshes.length) log('warn','⚠ this model has no face blendshapes — non-manual grammar (brows/mouth) won\'t show on it; head/torso/gaze still render');
+  // VRM expression groups (blendShapeMaster) → morph binds
+  let vrmExpr=null;
+  if(vrm0&&vrm0.blendShapeMaster&&vrm0.blendShapeMaster.blendShapeGroups){
+    const meshesJson=gjson.meshes||[];
+    const meshObjsFor=mi=>{
+      const nm=(meshesJson[mi]&&meshesJson[mi].name)||' ';
+      const out=[];
+      model.traverse(o=>{ if(o.isMesh&&o.morphTargetInfluences&&(o.name===nm||o.name.indexOf(nm)===0||(o.parent&&o.parent.name===nm))) out.push(o); });
+      return out;
+    };
+    vrmExpr={};
+    for(const gp of vrm0.blendShapeMaster.blendShapeGroups){
+      const key=(gp.presetName||gp.name||'').toLowerCase();
+      const binds=[];
+      for(const b of (gp.binds||[])){
+        for(const mo of meshObjsFor(b.mesh)) binds.push({mo,index:b.index,w:(b.weight!=null?b.weight:100)/100});
+      }
+      if(binds.length&&!vrmExpr[key]) vrmExpr[key]=binds;
+    }
+    log('info','VRM avatar: '+Object.keys(vmap||{}).length+' humanoid bones, expressions: '+Object.keys(vrmExpr).join(', '));
+  }
+  const sides={};
+  for(const S of ['Left','Right']){
+    const arm=B(S+'Arm'),fore=B(S+'ForeArm'),hand=B(S+'Hand');
+    if(!arm||!fore||!hand) throw new Error('missing '+S+' arm bones');
+    const lu=wp(arm).distanceTo(wp(fore)), lf=wp(fore).distanceTo(wp(hand));
+    const mid=B(S+'HandMiddle1')||B(S+'HandIndex1');
+    const fingW=mid? wp(mid).sub(wp(hand)).normalize() : new THREE.Vector3(S==='Left'?1:-1,0,0);
+    // palm normal from the thumb (rig-agnostic; falls back to palms-down T-pose)
+    let palmW=new THREE.Vector3(0,-1,0);
+    const th1=B(S+'HandThumb1'), th2=B(S+'HandThumb2');
+    if(mid&&th1&&th2){
+      const t0=wp(th2).sub(wp(th1)).normalize();
+      palmW=S==='Left'? new THREE.Vector3().crossVectors(fingW,t0) : new THREE.Vector3().crossVectors(t0,fingW);
+      if(palmW.lengthSq()<1e-4) palmW.set(0,-1,0); else palmW.normalize();
+    }
+    const curlW=new THREE.Vector3().crossVectors(fingW,palmW).normalize();
+    const fingers={};
+    for(const f of ['Thumb','Index','Middle','Ring','Pinky']){
+      fingers[f]=[];
+      for(let j=1;j<=3;j++){
+        const b=B(S+'Hand'+f+j); if(!b) break;
+        const inv=wq(b).invert();
+        let cw=curlW;
+        if(f==='Thumb'){
+          const ch=B(S+'Hand'+f+(j+1));
+          const tdir=ch? wp(ch).sub(wp(b)).normalize() : fingW;
+          cw=new THREE.Vector3().crossVectors(tdir,palmW).normalize();
+        }
+        fingers[f].push({bone:b,bind:b.quaternion.clone(),
+          curl:cw.clone().applyQuaternion(inv).normalize(),
+          spread:palmW.clone().applyQuaternion(inv).normalize()});
+      }
+    }
+    sides[S]={arm,fore,hand,lu,lf,fingers,
+      armBindW:wq(arm),foreBindW:wq(fore),handBindW:wq(hand),
+      armChildW:wp(fore).sub(wp(arm)).normalize(),
+      foreChildW:wp(hand).sub(wp(fore)).normalize(),
+      handBasisInv:new THREE.Quaternion().setFromRotationMatrix(makeBasis(fingW,palmW)).invert()};
+  }
+  const bq=o=>o?{bone:o,bindW:wq(o)}:null;
+  return {model,morphMeshes,sides,vrmExpr,
+    head:bq(B('Head')),spine:bq(B('Spine1')||B('Spine')),
+    eyeL:bq(B('LeftEye')),eyeR:bq(B('RightEye'))};
+}
+function loadAvatar(idx=0){
+  if(!THREE.GLTFLoader){ log('warn','⚠ GLTFLoader unavailable — using built-in avatar'); return; }
+  if(idx>=MODEL_URLS.length){ log('warn','⚠ no character model reachable — using built-in avatar'); return; }
+  new THREE.GLTFLoader().load(MODEL_URLS[idx],g=>{
+    try{ SK=buildSkinned(g); root.visible=false; log('ok','✓ 3D character loaded: '+MODEL_URLS[idx].split('/').pop().split('?')[0]+' (free model, Mixamo-compatible rig with finger bones)'); }
+    catch(e){ if(g&&g.scene) scene.remove(g.scene); SK=null; log('warn','⚠ model rig unusable ('+e.message+') — trying next'); loadAvatar(idx+1); }
+  },undefined,e=>{ log('warn','⚠ model download failed ('+((e&&(e.message||e.type))||'network')+') for URL '+(idx+1)+'/'+MODEL_URLS.length+' — trying next'); loadAvatar(idx+1); });
+}
+function unloadModel(){
+  if(SK){ scene.remove(SK.model); SK=null; }
+  root.visible=true;
+}
+function poseSkinnedHand(h,tgt,hst,dt,k,tSec){
+  const S=(h==='dh')===(IPSI===-1)?'Right':'Left';
+  const sd=SK.sides[S];
+  const Spos=sd.arm.getWorldPosition(new THREE.Vector3());
+  const W=hst.pos.clone();
+  let d=W.clone().sub(Spos); let dl=d.length();
+  const maxL=sd.lu+sd.lf-.01;
+  if(dl>maxL){ d.multiplyScalar(maxL/dl); W.copy(Spos).add(d); dl=maxL; }
+  if(dl<.05) dl=.05;
+  const a=Math.acos(Math.min(1,Math.max(-1,(sd.lu*sd.lu+dl*dl-sd.lf*sd.lf)/(2*sd.lu*dl))));
+  const dn=d.clone().normalize();
+  const sdSide=S==='Right'?-1:1;
+  const pole=new THREE.Vector3(sdSide*.4,-1,-.25).normalize();
+  let perp=pole.clone().sub(dn.clone().multiplyScalar(pole.dot(dn)));
+  if(perp.lengthSq()<1e-6) perp.set(sdSide,0,0); perp.normalize();
+  const E=Spos.clone().add(dn.clone().multiplyScalar(Math.cos(a)).add(perp.clone().multiplyScalar(Math.sin(a))).multiplyScalar(sd.lu));
+  const q1=new THREE.Quaternion().setFromUnitVectors(sd.armChildW,E.clone().sub(Spos).normalize()).multiply(sd.armBindW);
+  setBoneWorld(sd.arm,q1);
+  sd.arm.updateWorldMatrix(true,false);
+  const q2=new THREE.Quaternion().setFromUnitVectors(sd.foreChildW,W.clone().sub(E).normalize()).multiply(sd.foreBindW);
+  setBoneWorld(sd.fore,q2);
+  sd.fore.updateWorldMatrix(true,false);
+  // wrist: clamp finger dir to ≤~72° off forearm, then orient
+  const fdir=W.clone().sub(E).normalize();
+  let fv=new THREE.Vector3(...tgt.fing).normalize();
+  const ang=fv.angleTo(fdir),maxA=1.25;
+  if(ang>maxA) fv.lerp(fdir,(ang-maxA)/ang).normalize();
+  let qD=new THREE.Quaternion().setFromRotationMatrix(makeBasis(fv,new THREE.Vector3(...tgt.palm)));
+  qD=new THREE.Quaternion().setFromAxisAngle(fv,hst.twist).multiply(qD);
+  const xA=new THREE.Vector3(1,0,0).applyQuaternion(qD);
+  qD=new THREE.Quaternion().setFromAxisAngle(xA,hst.pitch).multiply(qD);
+  const qWh=qD.multiply(sd.handBasisInv).multiply(sd.handBindW);
+  if(!hst.wq) hst.wq=qWh.clone();
+  hst.wq.slerp(qWh,Math.min(1,k*1.4));
+  setBoneWorld(sd.hand,hst.wq);
+  sd.hand.updateWorldMatrix(true,false);
+  // fingers
+  const hsp=hst.hs, spreadOff=[1.4,.45,-.5,-1.4], sSgn=S==='Left'?1:-1;
+  ['Index','Middle','Ring','Pinky'].forEach((f,i)=>{
+    let c=hsp.c[i];
+    if(tgt.wig) c=Math.min(1,Math.max(0,c+.22*Math.sin(tSec*9+i*1.7)+.22));
+    const bnd=hsp.b||0, angs=[c*1.35+bnd*1.15,c*1.55,c*1.1];
+    sd.fingers[f].forEach((jb,j)=>{
+      const q=jb.bind.clone().multiply(new THREE.Quaternion().setFromAxisAngle(jb.curl,angs[j]));
+      if(j===0) q.multiply(new THREE.Quaternion().setFromAxisAngle(jb.spread,sSgn*spreadOff[i]*.16*hsp.s));
+      jb.bone.quaternion.copy(q);
+    });
+  });
+  const [tc,ta,to]=hsp.t;
+  sd.fingers['Thumb'].forEach((jb,j)=>{
+    let q;
+    if(j===0){
+      q=jb.bind.clone()
+        .multiply(new THREE.Quaternion().setFromAxisAngle(jb.curl,to*.7))
+        .multiply(new THREE.Quaternion().setFromAxisAngle(jb.spread,sSgn*(-.25-ta*.5)));
+    } else q=jb.bind.clone().multiply(new THREE.Quaternion().setFromAxisAngle(jb.curl,tc*.9));
+    jb.bone.quaternion.copy(q);
+  });
+}
+function poseSkinnedNM(nm,blink,tSec,dt,gt){
+  const cl=v=>Math.max(0,Math.min(1,v));
+  const M=(v,...names)=>{ for(const m of SK.morphMeshes){ for(const n of names){ const i=m.morphTargetDictionary[n]; if(i!==undefined) m.morphTargetInfluences[i]=cl(v); } } };
+  const E=(k,v)=>{ const b=SK.vrmExpr&&SK.vrmExpr[k]; if(b) for(const x of b) x.mo.morphTargetInfluences[x.index]=cl(v)*x.w; };
+  // ARKit names + VRoid Fcl_* names + VRM 0.x preset groups
+  M(nm.browRaise,'browInnerUp','Fcl_BRW_Surprised');
+  M(nm.browRaise*.8,'browOuterUpLeft','browOuterUpRight');
+  M(nm.browFurrow,'browDownLeft','browDownRight','Fcl_BRW_Angry');
+  M(nm.eyeWide,'eyeWideLeft','eyeWideRight','Fcl_EYE_Surprised');
+  M(nm.eyeSquint,'eyeSquintLeft','eyeSquintRight');
+  M(blink,'eyeBlinkLeft','eyeBlinkRight','Fcl_EYE_Close');
+  M(nm.cheekPuff,'cheekPuff');
+  M(nm.mouth.open*.7,'jawOpen','Fcl_MTH_A');
+  M(nm.mouth.round,'mouthPucker','Fcl_MTH_U');
+  M(nm.mouth.round*.35,'mouthFunnel');
+  M(nm.mouth.widen*.55,'mouthSmileLeft','mouthSmileRight','Fcl_MTH_Fun');
+  M(nm.mouth.press,'mouthPressLeft','mouthPressRight','Fcl_MTH_I');
+  M(nm.mouth.press*.25,'mouthClose');
+  E('a',nm.mouth.open*.8); E('u',nm.mouth.round);
+  E('i',nm.mouth.widen*.4+nm.mouth.press*.5);
+  E('angry',nm.browFurrow*.8); E('blink',blink);
+  if(SK.head){
+    const qd=new THREE.Quaternion().setFromEuler(new THREE.Euler(nm.headPitch+nm.headZ*1.2,nm.headYaw,nm.headRoll,'YXZ'));
+    const target=qd.multiply(SK.head.bindW.clone());
+    SK._hq=SK._hq||SK.head.bindW.clone();
+    SK._hq.slerp(target,Math.min(1,dt*10));
+    setBoneWorld(SK.head.bone,SK._hq);
+  }
+  if(SK.spine){
+    const qs=new THREE.Quaternion().setFromEuler(new THREE.Euler(0,nm.torsoYaw,0)).multiply(SK.spine.bindW.clone());
+    SK._sq=SK._sq||SK.spine.bindW.clone();
+    SK._sq.slerp(qs,Math.min(1,dt*6));
+    setBoneWorld(SK.spine.bone,SK._sq);
+  }
+  const gp=new THREE.Vector3(...gt);
+  let usedEyeBones=false;
+  for(const e of [SK.eyeL,SK.eyeR]){
+    if(!e) continue;
+    usedEyeBones=true;
+    const ep=e.bone.getWorldPosition(new THREE.Vector3());
+    const dv=gp.clone().sub(ep).normalize();
+    const yaw=Math.max(-.3,Math.min(.3,Math.atan2(dv.x,dv.z)));
+    const pitch=Math.max(-.25,Math.min(.25,-Math.asin(Math.max(-1,Math.min(1,dv.y)))*.6));
+    const qe=new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch,yaw,0,'YXZ')).multiply(e.bindW.clone());
+    setBoneWorld(e.bone,qe);
+  }
+  if(!usedEyeBones&&SK.vrmExpr){ // gaze via VRM look presets
+    const hp=SK.head?SK.head.bone.getWorldPosition(new THREE.Vector3()):new THREE.Vector3(0,1.5,0);
+    const dv=gp.clone().sub(hp).normalize();
+    E('lookleft',Math.max(0,dv.x*1.4)); E('lookright',Math.max(0,-dv.x*1.4));
+    E('lookup',Math.max(0,(dv.y-.15)*1.6)); E('lookdown',Math.max(0,(-dv.y-.15)*1.6));
+  }
+}
+
+// ---------------------------------------------------------------------
+// Pose engine
+// ---------------------------------------------------------------------
+const tmpV=new THREE.Vector3(),tmpV2=new THREE.Vector3(),tmpQ=new THREE.Quaternion(),tmpM=new THREE.Matrix4();
+const NEGY=new THREE.Vector3(0,-1,0);
+function solveArm(arm,wristTarget,elbowHint){
+  // world-space two-bone IK
+  arm.shoulder.getWorldPosition(tmpV);
+  const S=tmpV.clone(), W=new THREE.Vector3(...wristTarget);
+  let d=W.clone().sub(S); let dl=d.length();
+  const maxL=LU+LF-.008;
+  if(dl>maxL){ d.multiplyScalar(maxL/dl); W.copy(S).add(d); dl=maxL; }
+  if(dl<.06){ dl=.06; }
+  const a=Math.acos(Math.min(1,Math.max(-1,(LU*LU+dl*dl-LF*LF)/(2*LU*dl))));
+  const dn=d.clone().normalize();
+  // elbow pole: down + outward + slightly back
+  const pole=new THREE.Vector3(arm.side*.55,-1,-.35).normalize();
+  let perp=pole.clone().sub(dn.clone().multiplyScalar(pole.dot(dn)));
+  if(perp.lengthSq()<1e-6) perp.set(arm.side,0,0); perp.normalize();
+  const elbowDir=dn.clone().multiplyScalar(Math.cos(a)).add(perp.clone().multiplyScalar(Math.sin(a)));
+  const E=S.clone().add(elbowDir.multiplyScalar(LU));
+  // shoulder world quat: -y → (E-S)
+  const q1=new THREE.Quaternion().setFromUnitVectors(NEGY,E.clone().sub(S).normalize());
+  const pq=new THREE.Quaternion(); arm.shoulder.parent.getWorldQuaternion(pq);
+  arm.shoulder.quaternion.copy(pq.clone().invert().multiply(q1));
+  // elbow world quat: -y → (W-E)
+  const q2=new THREE.Quaternion().setFromUnitVectors(NEGY,W.clone().sub(E).normalize());
+  arm.shoulder.updateWorldMatrix(true,false);
+  const pq2=new THREE.Quaternion(); arm.elbow.parent.getWorldQuaternion(pq2);
+  arm.elbow.quaternion.copy(pq2.clone().invert().multiply(q2));
+}
+function wristQuatFor(arm,fingDir,palmDir){
+  const Y=new THREE.Vector3(...fingDir).normalize();
+  let Z=new THREE.Vector3(...palmDir).multiplyScalar(-1);
+  Z.sub(Y.clone().multiplyScalar(Y.dot(Z)));
+  if(Z.lengthSq()<1e-5) Z.set(0,0,1).sub(Y.clone().multiplyScalar(Y.dot(new THREE.Vector3(0,0,1))));
+  Z.normalize();
+  const X=new THREE.Vector3().crossVectors(Y,Z);
+  tmpM.makeBasis(X,Y,Z);
+  return new THREE.Quaternion().setFromRotationMatrix(tmpM);
+}
+const ease=u=>u<0?0:u>1?1:u*u*(3-2*u);
+const fract=x=>x-Math.floor(x);
+const tri=x=>1-Math.abs(2*fract(x)-1);
+function mvSize(s,amp){ return (({small:.06,med:.13,large:.22})[s]||parseFloat(s)||.13)*(amp||1); }
+
+function evalManual(segs,tbNow,st,hand){
+  // find active/last segment
+  let seg=null,last=null;
+  for(const s of segs){
+    const t1=s.t1==null?Infinity:s.t1;
+    if(tbNow>=s.t0&&tbNow<t1){ seg=s; break; }
+    if(tbNow>=s.t0) last=s;
+  }
+  const out={rest:false,twist:0,pitch:0,wig:false};
+  let use=seg,u=0,holdEnd=false;
+  if(!seg){
+    if(last && tbNow < (last.t1==null?Infinity:last.t1)+0.9){ use=last; u=1; holdEnd=true; }
+    else { out.rest=true; return out; }
+  } else {
+    const t1=seg.t1==null?tbNow+1:seg.t1;
+    u=Math.min(1,(tbNow-seg.t0)/Math.max(t1-seg.t0,.001));
+  }
+  const s=use;
+  let pos=s.locB? v3.lerp(s.locA,s.locB,ease(u)) : s.locA.slice();
+  const uph=s.phase? fract(u+s.phase):u;
+  for(const m of (s.mv||[])){
+    const rep=m.repeat||1;
+    const speed=parseFloat(m.speed||1);
+    let w = rep>1? tri(uph*rep) : ease(uph);
+    const sz=mvSize(m.size,s.amp);
+    const mir=s.mirror?-1:1;
+    const dv0=m.dir?dirVec(m.dir):[0,0,1];
+    const dv=[dv0[0]*mir,dv0[1],dv0[2]];
+    switch(m.name){
+      case 'straight': pos=v3.add(pos,v3.scale(dv,sz*w)); break;
+      case 'arc':{
+        pos=v3.add(pos,v3.scale(dv,sz*w));
+        const upish=Math.abs(dv[1])>.8?[0,0,1]:[0,1,0];
+        pos=v3.add(pos,v3.scale(upish,sz*.55*Math.sin(Math.PI*Math.min(w,1))));
+        break;}
+      case 'circle':{
+        const r=sz*.45, ph=2*Math.PI*(m.repeat||1)*uph*(m.cw?-1:1)*speed;
+        if(m.plane==='h') pos=v3.add(pos,[r*Math.sin(ph)*mir,0,r*(1-Math.cos(ph))]);
+        else pos=v3.add(pos,[r*Math.sin(ph)*mir,r*(1-Math.cos(ph)),0]);
+        break;}
+      case 'zigzag': pos=v3.add(pos,v3.scale(dv,sz*uph)); pos[1]+=sz*.3*(tri(uph*4)-.5); break;
+      case 'spiral':
+      case 'path':{
+        if(!m._to&&m.to) m._to=clampReach(locPos(m.to,null));
+        const tgt=m._to|| (m.name==='spiral'? v3.add(s.locA,v3.scale(dv,sz)) : v3.add(s.locA,[0,.1,.1]));
+        pos=v3.lerp(s.locA,tgt,ease(u));
+        if(m.name==='spiral'||m.dir==='spiral'){
+          const ph=2*Math.PI*2.5*u;
+          pos=v3.add(pos,[.05*Math.sin(ph)*mir,.03*(1-Math.cos(ph)),0]);
+        }
+        break;}
+      case 'wiggle': out.wig=true; break;
+      case 'flick': break;
+      case 'twist': out.twist=(m.deg||90)/180*Math.PI*(rep>1?tri(uph*rep):ease(uph))*mir; break;
+      case 'nod': out.pitch=.5*Math.sin(Math.PI*2*(m.repeat||1)*uph); break;
+      case 'tap': pos[1]-= .04*(0.5-0.5*Math.cos(2*Math.PI*(m.n||1)*uph)); break;
+      case 'rub': pos=v3.add(pos,[.02*Math.sin(6*uph)*mir,0,.02*Math.cos(6*uph)]); break;
+      case 'shake': pos=v3.add(pos,[mvSize(m.size||'small',1)*Math.sin(2*Math.PI*(m.repeat||3)*uph)*mir,0,0]); break;
+      case 'pivot': out.twist=(m.open||60)/180*Math.PI*ease(uph)*(s.mirror?1:-1); break;
+      case 'open': case 'close': break;
+      default: break;
+    }
+  }
+  // handshape blend curve
+  let hsU=s.hsB? Math.min(1,Math.max(0,(u-.25)/.55)) : 0;
+  if((s.mv||[]).some(m=>m.name==='flick')) hsU = u>.6?1:0;
+  out.pos=pos; out.hs=blendHS(s.hsA,s.hsB,hsU); out.seg=s; out.u=u;
+  // orientation
+  const mir=s.mirror?-1:1;
+  let fing, palm;
+  if(s.aimAt){
+    fing=v3.norm(v3.sub(s.aimAt,pos));
+    palm= s.palm? dirVec(s.palm) : v3.norm(v3.sub(s.aimAt,pos));
+  } else {
+    fing=dirVec(s.fing||'up'); palm=dirVec(s.palm||'fwd');
+    if(s.mirror){ fing=[-fing[0],fing[1],fing[2]]; palm=[-palm[0],palm[1],palm[2]]; }
+  }
+  out.fing=fing; out.palm=palm;
+  out.tense=s.tense; out.holdEnd=holdEnd;
+  return out;
+}
+
+// non-manual accumulation
+function rampEnv(tb,t0,t1,ant,inR,outR){
+  const a=t0-(ant||0);
+  if(tb<a||tb>t1+outR) return 0;
+  if(tb<a+inR) return (tb-a)/inR;
+  if(tb>t1) return Math.max(0,1-(tb-t1)/outR);
+  return 1;
+}
+function evalNM(score,tbNow,tSec){
+  const nm={browRaise:0,browFurrow:0,eyeWide:0,eyeSquint:0,eyeClosed:0,cheekPuff:0,
+    mouth:{open:0,widen:0,round:0,press:0},headYaw:0,headPitch:0,headRoll:0,headZ:0,
+    lean:0,torsoYaw:0,gazeTarget:null,keys:[]};
+  const apply=(params,e,key)=>{
+    if(e<=0) return;
+    if(key) nm.keys.push(key);
+    const b=params.brows||{};
+    if(b.raise) nm.browRaise=nm.browRaise*(1-e)+b.raise*e;
+    if(b.furrow) nm.browFurrow=nm.browFurrow*(1-e)+b.furrow*e;
+    const ey=params.eyes||{};
+    if(ey.wide) nm.eyeWide=Math.max(nm.eyeWide,ey.wide*e);
+    if(ey.squint) nm.eyeSquint=Math.max(nm.eyeSquint,ey.squint*e);
+    if(params.cheeks&&params.cheeks.puff) nm.cheekPuff=Math.max(nm.cheekPuff,params.cheeks.puff*e);
+    const h=params.head||{};
+    if(h.shake){ const sh=h.shake.amp!==undefined?h.shake:{amp:.5,hz:2}; nm.headYaw+= .3*sh.amp*Math.sin(2*Math.PI*(sh.hz||2)*tSec)*e; }
+    if(h.nod){ const nd=h.nod.amp!==undefined?h.nod:{amp:.5,hz:2}; nm.headPitch+= .22*nd.amp*Math.sin(2*Math.PI*(nd.hz||2)*tSec)*e; }
+    if(h.thrust) nm.headZ+=.04*h.thrust*e;
+    if(h.pullback) nm.headZ-=.04*h.pullback*e;
+    if(h.tilt) nm.headRoll+=.25*h.tilt*e;
+    if(h.tiltF) nm.headPitch+=.2*h.tiltF*e;
+    const mo=params.mouth||{};
+    for(const k of ['open','widen','round','press']) if(mo[k]) nm.mouth[k]=nm.mouth[k]*(1-e)+mo[k]*e;
+    if(mo.burst){ /* handled by caller via envelope shape */ nm.mouth.open=Math.max(nm.mouth.open,.7*e); }
+    if(mo.squint) nm.eyeSquint=Math.max(nm.eyeSquint,mo.squint*e);
+    if(mo.cheeks) nm.cheekPuff=Math.max(nm.cheekPuff,mo.cheeks*e);
+    if(mo.tongue) nm.mouth.open=Math.max(nm.mouth.open,.25*e);
+    if(params.gaze==='addressee') nm.gazeTarget=[0,1.55,2];
+  };
+  const spans=[...score.spans].sort((a,b)=>a.depth-b.depth);
+  for(const sp of spans){
+    const e=rampEnv(tbNow,sp.t0,sp.t1,sp.bundle.anticipate||0,.2,.15);
+    const params={...sp.bundle};
+    if(params.mouth&&(params.mouth.burst)){
+      // punctual morphemes (pah/pow): peak near span end
+      const t1=sp.t1, w=Math.max(0,1-Math.abs(tbNow-(t1-.3))/.5);
+      apply({mouth:{open:params.mouth.open*w,widen:.2*w}},e,sp.key);
+      continue;
+    }
+    apply(params, e, e>0?sp.key:null);
+  }
+  for(const o of score.nmOver){
+    const e=rampEnv(tbNow,o.t0,o.t1==null?tbNow:o.t1,0,.15,.15);
+    apply(o.params,e,null);
+  }
+  // affect fill (never overrides grammar — applied only where zero, §8.4)
+  for(const a of score.affect){
+    if(tbNow<a.t0||tbNow>(a.t1||Infinity)) continue;
+    if(/excite|happy|joy/.test(a.name)){ if(!nm.browRaise)nm.browRaise=.25; if(!nm.mouth.widen)nm.mouth.widen=.45; }
+    else if(/exasper|annoy|anger|frustrat/.test(a.name)){ if(!nm.browFurrow)nm.browFurrow=.35; if(!nm.mouth.press)nm.mouth.press=.4; }
+    else if(/sad/.test(a.name)){ if(!nm.headPitch)nm.headPitch=.08; }
+    nm.keys.push('affect:'+a.name);
+  }
+  // torso (role shift)
+  for(const ts of score.torso){
+    const e=rampEnv(tbNow,ts.t0,ts.t1,0,.3,.3);
+    if(e>0){
+      const yaw=Math.atan2((ts.toward[0]-0),(ts.toward[2]+.4))*.7;
+      nm.torsoYaw+=yaw*ts.amp*e;
+      nm.keys.push('rs');
+    }
+  }
+  // gaze
+  let g=null;
+  for(const gs of score.gazeSegs) if(tbNow>=gs.t0&&tbNow<=(gs.t1==null?gs.t0+.6:gs.t1)) g=gs;
+  if(g){ nm.gazeTarget = g.follow? 'follow-'+g.follow : g.target; }
+  return nm;
+}
+
+// ---------------------------------------------------------------------
+// Playback
+// ---------------------------------------------------------------------
+const state={
+  score:null,playing:false,tSec:0,durSec:0,speed:1,
+  hands:{dh:{pos:new THREE.Vector3(DH_SIDE*.24,1.02,.16),quat:new THREE.Quaternion(),hs:HS['rest'],twist:0,pitch:0},
+         ndh:{pos:new THREE.Vector3(-DH_SIDE*.24,1.02,.16),quat:new THREE.Quaternion(),hs:HS['rest'],twist:0,pitch:0}},
+  blinkT:2.2
+};
+const capEl=document.querySelector('#caption span');
+const nmEl=document.querySelector('#nmcap span');
+const seekEl=document.getElementById('seek');
+const timeEl=document.getElementById('time');
+
+function restTarget(hand){
+  const side=hand==='dh'?DH_SIDE:-DH_SIDE;
+  return {pos:[side*.25,1.04,.15],fing:[side*.05,-1,.25],palm:[-side*.8,0,-.5],hs:HS['rest'],twist:0,pitch:0,tense:0};
+}
+function frame(dt){
+  const sc=state.score;
+  let tbNow=0,tSec=state.tSec;
+  if(sc){
+    const spb=1/sc.tempo;
+    tbNow=tSec/spb;
+    if(state.playing){
+      state.tSec+=dt*state.speed;
+      if(state.tSec>=state.durSec){ state.tSec=state.durSec; state.playing=false; setPlayUI(); }
+    }
+  }
+  // manual channels
+  for(const h of ['dh','ndh']){
+    const hs=state.hands[h];
+    let tgt;
+    if(sc){
+      const ev=evalManual(sc.segs[h],tbNow,hs,h);
+      if(ev.rest) tgt=restTarget(h);
+      else tgt={pos:ev.pos,fing:ev.fing,palm:ev.palm,hs:ev.hs,twist:ev.twist,pitch:ev.pitch,tense:ev.tense,wig:ev.wig};
+    } else tgt=restTarget(h);
+    const rate=(10+(tgt.tense?6:0))*(sc?Math.max(state.speed,.6):1);
+    const k=1-Math.exp(-dt*rate);
+    hs.pos.lerp(new THREE.Vector3(...tgt.pos),k);
+    hs.hs=blendHS(hs.hs,tgt.hs,Math.min(1,k*1.6));
+    hs.twist+=(tgt.twist-hs.twist)*k; hs.pitch+=((tgt.pitch||0)-hs.pitch)*k;
+    if(SK){ poseSkinnedHand(h,tgt,hs,dt,k,tSec); continue; }
+    const arm=arms[h];
+    solveArm(arm,[hs.pos.x,hs.pos.y,hs.pos.z]);
+    // anatomical wrist limit: clamp finger direction to ≤~72° off the forearm axis
+    arm.elbow.getWorldPosition(tmpV2);
+    const fdir=hs.pos.clone().sub(tmpV2).normalize();
+    let fv=new THREE.Vector3(...tgt.fing).normalize();
+    const ang=fv.angleTo(fdir), maxA=1.25;
+    if(ang>maxA){ fv.lerp(fdir,(ang-maxA)/ang).normalize(); }
+    let wq=wristQuatFor(arm,[fv.x,fv.y,fv.z],tgt.palm);
+    // extra twist about finger axis + wrist nod
+    const fAxis=fv;
+    wq=new THREE.Quaternion().setFromAxisAngle(fAxis,hs.twist).multiply(wq);
+    const xAxis=new THREE.Vector3(1,0,0).applyQuaternion(wq);
+    wq=new THREE.Quaternion().setFromAxisAngle(xAxis,hs.pitch).multiply(wq);
+    arm.elbow.updateWorldMatrix(true,false);
+    const pq=new THREE.Quaternion(); arm.wrist.parent.getWorldQuaternion(pq);
+    const targetLocal=pq.invert().multiply(wq);
+    hs.quat.slerp(targetLocal,k);
+    arm.wrist.quaternion.copy(hs.quat);
+    applyHandshape(arm.hand,hs.hs,tgt.wig,tSec);
+  }
+  // non-manuals
+  const nm=sc? evalNM(sc,tbNow,tSec) : {browRaise:0,browFurrow:0,eyeWide:0,eyeSquint:0,cheekPuff:0,mouth:{open:0,widen:0,round:0,press:0},headYaw:0,headPitch:0,headRoll:0,headZ:0,torsoYaw:0,keys:[],gazeTarget:null};
+  // blink
+  state.blinkT-=dt; if(state.blinkT<0) state.blinkT=1.8+Math.random()*2.4;
+  const blink=state.blinkT<.12?1:0;
+  // gaze target (shared by both avatars)
+  let gt=nm.gazeTarget;
+  if(typeof gt==='string'&&gt.startsWith('follow-')) gt=[state.hands[gt.slice(7)].pos.x,state.hands[gt.slice(7)].pos.y,state.hands[gt.slice(7)].pos.z];
+  if(!gt) gt=[0,1.55,2.2];
+  if(SK){ poseSkinnedNM(nm,blink,tSec,dt,gt); }
+  else{
+  for(const [i,b] of rig.brows.entries()){
+    b.position.y=b.userData.baseY + .014*nm.browRaise - .007*nm.browFurrow;
+    b.position.x=b.userData.baseX - b.userData.s*.006*nm.browFurrow;
+    b.rotation.z=b.userData.s*(-.08 -.35*nm.browFurrow + .12*nm.browRaise);
+  }
+  for(const e of rig.eyes){
+    e.scale.y=Math.max(.12,(1+.3*nm.eyeWide)*(1-.6*nm.eyeSquint)*(1-blink));
+    e.scale.x=1+.1*nm.eyeWide;
+  }
+  rig.mouth.scale.x=Math.max(.4,1+.5*nm.mouth.widen-.45*nm.mouth.round);
+  rig.mouth.scale.y=Math.max(.35,1+7*nm.mouth.open+2*nm.mouth.round-.55*nm.mouth.press);
+  for(const c of rig.cheeks) c.scale.setScalar(.35+.75*nm.cheekPuff);
+  // head + torso (smoothed)
+  rig.head.rotation.y+= (nm.headYaw-rig.head.rotation.y)*Math.min(1,dt*10);
+  rig.head.rotation.x+= (nm.headPitch-rig.head.rotation.x)*Math.min(1,dt*10);
+  rig.head.rotation.z+= (nm.headRoll-rig.head.rotation.z)*Math.min(1,dt*8);
+  rig.head.position.z+= (nm.headZ-rig.head.position.z)*Math.min(1,dt*8);
+  rig.torso.rotation.y+= (nm.torsoYaw-rig.torso.rotation.y)*Math.min(1,dt*6);
+  rig.torso.position.y=1.0+.004*Math.sin(tSec*1.6); // breathing idle
+  const gp=new THREE.Vector3(...gt);
+  for(const [i,e] of rig.eyes.entries()){
+    const ew=new THREE.Vector3(); e.getWorldPosition(ew);
+    const d=gp.clone().sub(ew).normalize();
+    rig.pupils[i].position.x=Math.max(-.008,Math.min(.008,d.x*.012));
+    rig.pupils[i].position.y=Math.max(-.006,Math.min(.006,(d.y)*.01));
+  }
+  }
+  // captions
+  if(sc){
+    const lab=sc.labels.find(l=>tbNow>=l.t0&&tbNow<l.t1);
+    capEl.textContent=lab?lab.text:'';
+    capEl.parentElement.style.opacity=lab?1:0;
+    const keys=[...new Set(nm.keys)];
+    nmEl.textContent=keys.length?keys.map(k=>'['+k+']').join(' '):'';
+    seekEl.value=Math.round(1000*state.tSec/Math.max(state.durSec,.01));
+    timeEl.textContent=state.tSec.toFixed(1)+'s / '+state.durSec.toFixed(1)+'s';
+  }
+}
+let lastT=performance.now();
+function loop(now){
+  const dt=Math.min((now-lastT)/1000,.05); lastT=now;
+  frame(dt);
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
+}
+function resize(){
+  const w=stage.clientWidth,h=stage.clientHeight;
+  renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+addEventListener('resize',resize);
+
+// orbit controls (minimal)
+{
+  let drag=false,px=0,py=0;
+  renderer.domElement.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;});
+  addEventListener('pointerup',()=>drag=false);
+  addEventListener('pointermove',e=>{
+    if(!drag) return;
+    camTheta+=(e.clientX-px)*.008; camPhi=Math.min(2.2,Math.max(.6,camPhi+(e.clientY-py)*.006));
+    px=e.clientX;py=e.clientY; updateCam();
+  });
+  renderer.domElement.addEventListener('wheel',e=>{
+    e.preventDefault(); camR=Math.min(4.5,Math.max(.9,camR+e.deltaY*.0015)); updateCam();
+  },{passive:false});
+}
+
+// ---------------------------------------------------------------------
+// UI wiring
+// ---------------------------------------------------------------------
+const srcEl=document.getElementById('src');
+const exSel=document.getElementById('examples');
+for(const name of Object.keys(EXAMPLES)){
+  const o=document.createElement('option'); o.textContent=name; exSel.appendChild(o);
+}
+exSel.onchange=()=>{ srcEl.value=EXAMPLES[exSel.value]; };
+srcEl.value=EXAMPLES[Object.keys(EXAMPLES)[0]];
+
+const btnSign=document.getElementById('btnSign');
+function setPlayUI(){ btnSign.textContent=state.playing?'❚❚ Pause':'▶ Sign it'; }
+btnSign.onclick=()=>{
+  if(state.playing){ state.playing=false; setPlayUI(); return; }
+  if(state.score && state.tSec>0 && state.tSec<state.durSec && state.lastSrc===srcEl.value){
+    state.playing=true; setPlayUI(); return;
+  }
+  clearLog();
+  let doc;
+  try{ doc=parseLarry(srcEl.value); }
+  catch(err){ log('err','✗ parse error: '+err.message+'  (§7: a file either parses or it doesn\'t)'); return; }
+  let sc;
+  try{ sc=compile(doc); }
+  catch(err){ log('err','✗ compile error: '+err.message); console.error(err); return; }
+  if(doc.handed!==(DH_SIDE===-1?'right':'left')){ IPSI=doc.handed==='left'?1:-1; buildArms(); }
+  for(const e of sc.errors) log('err','✗ '+e);
+  for(const w of sc.warnings) log('warn','⚠ '+w);
+  const nSigns=sc.segs.dh.length+sc.segs.ndh.length;
+  log('ok',`✓ compiled: ${nSigns} manual segments, ${sc.spans.length} non-manual spans, ${sc.durBeats.toFixed(1)} beats @ ${sc.tempo} sps (${doc.handed}-handed)`);
+  state.score=sc; state.durSec=sc.durBeats/sc.tempo; state.tSec=0; state.playing=true; state.lastSrc=srcEl.value;
+  setPlayUI();
+};
+document.getElementById('btnStop').onclick=()=>{ state.playing=false; state.tSec=0; setPlayUI(); };
+seekEl.oninput=()=>{ if(state.score){ state.tSec=seekEl.value/1000*state.durSec; } };
+document.getElementById('speed').oninput=e=>{ state.speed=parseFloat(e.target.value); };
+document.getElementById('btnModel').onclick=()=>{
+  const u=document.getElementById('modelUrl').value.trim();
+  if(!u) return;
+  try{ localStorage.setItem('larryModelUrl',u); }catch(e){}
+  unloadModel();
+  MODEL_URLS=[u,
+    'https://arweave.net/gwG7w4bY-A5c3R6A6GOz3xBCgbPvkFQmqPIDtvnNsYI',
+    'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/models/gltf/Xbot.glb'];
+  log('info','loading model: '+u);
+  loadAvatar(0);
+};
+try{ const savedU=localStorage.getItem('larryModelUrl'); if(savedU) document.getElementById('modelUrl').value=savedU; }catch(e){}
+
+resize(); updateCam();
+loadAvatar();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

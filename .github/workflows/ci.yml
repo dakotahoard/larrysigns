@@ -20,3 +20,16 @@ jobs:
             python tools/larry_lint.py "$f" || status=1
           done
           exit $status
+      - name: Lint every dictionary
+        run: |
+          status=0
+          for f in dictionary/*.lry; do
+            echo "== $f"
+            python tools/larry_lint.py "$f" || status=1
+          done
+          exit $status
+      - name: Spec 'latest' mirror is in sync
+        run: |
+          newest="$(ls spec/larry-spec-v*.md | sort -V | tail -1)"
+          echo "newest versioned spec: $newest"
+          cmp spec/larry-spec-latest.md "$newest"

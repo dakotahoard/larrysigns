@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LARRY dictionary editor</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2330; --muted: #66707f;
+    --line: #dde1e7; --accent: #3b4ec8; --accent-ink: #ffffff;
+    --warn: #8a6d00; --warn-bg: #fff7db; --err: #a3222c; --err-bg: #fdecee;
+    --ok: #1e7a3c; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+           background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  header .file { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  header .dirty { color: var(--err); font-weight: 600; }
+  .spacer { flex: 1; }
+  button { border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+           border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  button.danger { color: var(--err); }
+  main { display: grid; grid-template-columns: 260px 1fr; gap: 14px;
+         padding: 14px 16px; max-width: 1180px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  aside.panel { padding: 10px; align-self: start; position: sticky; top: 14px; }
+  aside input[type=search] { width: 100%; padding: 6px 8px; border: 1px solid var(--line);
+        border-radius: 6px; font: inherit; margin-bottom: 8px; }
+  #entry-list { list-style: none; margin: 0; padding: 0; max-height: 65vh; overflow: auto; }
+  #entry-list li { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+  #entry-list li:hover { background: var(--bg); }
+  #entry-list li.active { background: var(--accent); color: var(--accent-ink); }
+  #entry-list .g { display: block; font-size: 12px; color: var(--muted);
+                   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #entry-list li.active .g { color: #cdd4f5; }
+  #count { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  section.panel { padding: 16px; }
+  fieldset { border: none; margin: 0 0 4px; padding: 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 10px; }
+  .row label.head { width: 92px; font-weight: 600; font-family: var(--mono); font-size: 13px;
+                    display: flex; justify-content: space-between; align-items: center;
+                    padding-right: 4px; }
+  .row .hint { flex-basis: 100%; margin-left: 100px; color: var(--muted); font-size: 12px; }
+  select, input[type=text], textarea { padding: 6px 8px; border: 1px solid var(--line);
+        border-radius: 6px; font: inherit; background: #fff; }
+  input.wide { flex: 1; min-width: 220px; }
+  input.raw, textarea { font-family: var(--mono); font-size: 13px; }
+  textarea { width: 100%; min-height: 56px; resize: vertical; }
+  .rawtog { font-size: 11px; color: var(--muted); user-select: none;
+            display: inline-flex; align-items: center; gap: 3px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+  pre#preview { margin: 0; background: #10151f; color: #d7e0ef; padding: 12px;
+        border-radius: 8px; font-family: var(--mono); font-size: 13px;
+        overflow: auto; min-height: 140px; }
+  #findings { display: flex; flex-direction: column; gap: 6px; }
+  #findings .f { padding: 7px 10px; border-radius: 6px; font-size: 13px; }
+  #findings .warn { background: var(--warn-bg); color: var(--warn); }
+  #findings .error { background: var(--err-bg); color: var(--err); }
+  #findings .ok { color: var(--ok); }
+  .btnrow { display: flex; gap: 8px; margin-top: 14px; }
+  .mvhelp { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+  .mvhelp select { font-size: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+       color: var(--muted); margin: 0 0 8px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 12px; }
+  main.has-info { grid-template-columns: 260px 1fr 290px; }
+  .info-btn { width: 18px; height: 18px; border-radius: 50%; padding: 0; flex: none;
+      font: 600 11px/1 var(--mono); color: var(--muted); font-style: italic; }
+  .info-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .info-btn.active { background: var(--accent); color: var(--accent-ink);
+      border-color: var(--accent); }
+  #info-panel { padding: 14px; align-self: start; position: sticky; top: 14px;
+      font-size: 13px; max-height: calc(100vh - 28px); overflow: auto; }
+  #info-panel p { margin: 0 0 8px; }
+  #info-panel ul { margin: 0 0 8px; padding-left: 18px; }
+  #info-panel li { margin-bottom: 4px; }
+  #info-panel code { background: var(--bg); border: 1px solid var(--line);
+      border-radius: 4px; padding: 0 4px; font-family: var(--mono); font-size: 12px; }
+  #info-panel .ref { color: var(--muted); font-size: 12px; }
+  @media (max-width: 960px) {
+    main, main.has-info { grid-template-columns: 1fr; }
+    aside.panel, #info-panel { position: static; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>LARRY dictionary editor</h1>
+  <span class="file" id="file-label">no file — using a new empty dictionary</span>
+  <span class="dirty" id="dirty-flag" hidden>● unsaved</span>
+  <span class="spacer"></span>
+  <button id="btn-new-file">New file</button>
+  <button id="btn-open">Open .lry…</button>
+  <button id="btn-save">Save</button>
+  <button id="btn-save-as">Save as…</button>
+  <input type="file" id="open-fallback" accept=".lry,text/plain" hidden>
+</header>
+
+<main>
+  <aside class="panel">
+    <input type="search" id="search" placeholder="Filter signs…">
+    <ul id="entry-list"></ul>
+    <div id="count"></div>
+    <div class="btnrow"><button id="btn-new-sign" class="primary" style="width:100%">+ New sign</button></div>
+  </aside>
+
+  <section class="panel">
+    <fieldset>
+      <div class="row">
+        <label class="head" for="f-id">SIGN ID</label>
+        <input type="text" id="f-id" class="wide" placeholder="HELLO" autocapitalize="characters" spellcheck="false">
+      </div>
+      <div class="row">
+        <label class="head" for="f-gloss">gloss</label>
+        <input type="text" id="f-gloss" class="wide" placeholder='"hello" — greeting (source / citation)'>
+        <span class="hint">Stored as a # comment above the def. Note where the definition came from.</span>
+      </div>
+      <div class="row">
+        <label class="head" for="f-compound">compound</label>
+        <input type="text" id="f-compound" class="wide raw" placeholder="GIRL, SAME  (etymology — optional)" spellcheck="false">
+      </div>
+
+      <div class="row">
+        <label class="head">hands</label>
+        <select id="hands-sel">
+          <option value="">(default: dh)</option>
+          <option>dh</option><option>ndh</option>
+          <option>both sym(mirror)</option><option>both sym(alt)</option>
+          <option>both sym(parallel)</option>
+        </select>
+        <label class="rawtog"><input type="checkbox" id="hands-rawtog">raw</label>
+        <input type="text" id="hands-raw" class="wide raw" hidden>
+      </div>
+
+      <div class="row">
+        <label class="head">hs *</label>
+        <select id="hs-base"></select>
+        <span>›</span>
+        <select id="hs-to"><option value="">(no transition)</option></select>
+        <label class="rawtog"><input type="checkbox" id="hs-seg">@ mv.end</label>
+        <label class="rawtog"><input type="checkbox" id="hs-rawtog">raw</label>
+        <input type="text" id="hs-raw" class="wide raw" hidden>
+      </div>
+
+      <div class="row">
+        <label class="head">orient</label>
+        palm(<select id="or-palm"><option value="">—</option></select>+<select id="or-palm2"><option value="">—</option></select>)
+        fingers(<select id="or-fing"><option value="">—</option></select>+<select id="or-fing2"><option value="">—</option></select>)
+        <label class="rawtog"><input type="checkbox" id="or-rawtog">raw</label>
+        <input type="text" id="or-raw" class="wide raw" hidden>
+      </div>
+
+      <div class="row">
+        <label class="head">loc *</label>
+        <select id="loc-main"></select>
+        <span>→</span>
+        <select id="loc-to"><option value="">(no path)</option></select>
+        contact(<select id="loc-contact"><option value="">—</option></select>)
+        <label class="rawtog"><input type="checkbox" id="loc-rawtog">raw</label>
+        <input type="text" id="loc-raw" class="wide raw" hidden>
+      </div>
+
+      <div class="row">
+        <label class="head">mv</label>
+        <div style="flex:1">
+          <textarea id="mv-text" placeholder="straight(dir: ipsi+fwd) size(small) end(release)" spellcheck="false"></textarea>
+          <div class="mvhelp">
+            insert:
+            <select id="mv-prim"><option value="">movement…</option></select>
+            <select id="mv-param"><option value="">parameter…</option></select>
+            <span class="rawtog">movements compose with “+”, sequence with space</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <label class="head">nm</label>
+        <input type="text" id="nm-text" class="wide raw" placeholder="mouth(morpheme: pah)" spellcheck="false">
+      </div>
+      <div class="row" id="def-raw-row" hidden>
+        <label class="head">def body</label>
+        <div style="flex:1">
+          <textarea id="def-raw" style="min-height:180px" spellcheck="false"></textarea>
+          <div class="mvhelp"><span class="rawtog">fields, plus sub-blocks: dh { … }  ndh { … }  seg { … }  (§7.1.1–7.1.2)</span></div>
+        </div>
+      </div>
+    </fieldset>
+
+    <div class="btnrow">
+      <button id="btn-commit" class="primary">Add sign</button>
+      <button id="btn-rawmode">Edit as text</button>
+      <button id="btn-copy">Copy def</button>
+      <button id="btn-delete" class="danger" hidden>Delete</button>
+    </div>
+
+    <div class="two">
+      <div><h2>Preview</h2><pre id="preview"></pre></div>
+      <div><h2>Checks</h2><div id="findings"></div></div>
+    </div>
+
+    <p class="note">Every definition is a hypothesis pending Deaf review (GOVERNANCE.md).
+    Cite a source in the gloss line. Saved files are plain LARRY —
+    run <code>python3 tools/larry_lint.py dictionary/core.lry</code> to double-check.</p>
+  </section>
+
+  <aside class="panel" id="info-panel" hidden>
+    <h2 id="info-title"></h2>
+    <div id="info-body"></div>
+  </aside>
+</main>
+
+<script id="core-lib">
+/* LARRY dictionary editor — file-format core.
+   Parses/serializes dictionaries of `def SIGNID sign { ... }` blocks per
+   spec v0.1.1 §7.1 and §13, mirroring the closed-fieldkey rule (§13.1-4). */
+
+const ASL = {
+  fieldkeys: ["hands", "hs", "orient", "loc", "mv", "nm"],
+  hsBases: ["A","B","C","D","E","F","G","H","I","K","L","M","N","O","P","Q",
+            "R","S","T","U","V","W","X","Y","Z"],
+  hsNumerals: ["1","3","4","5","7","8"],
+  hsAliases: { "2": "V", "6": "W", "9": "F" },   // §10.1: normalize on save
+  hsDerived: ["open-A","open-B","bent-B","flat-B","open-8","bent-V","bent-3",
+              "claw-5","claw-3","flat-O","baby-O","small-C","flat-C","G-angle",
+              "horns","ILY","R-crossed","S-tense","1-bent","5-lax"],
+  anatomical: ["head-top","forehead","temple-ipsi","brow","eye","nose",
+               "ear-ipsi","cheek","chin","mouth","neck","shoulder-ipsi",
+               "shoulder-contra","chest-center","chest-ipsi","chest-contra",
+               "abdomen","upper-arm-ndh","elbow-ndh","forearm-ndh",
+               "wrist-back-ndh","ndh-palm","ndh-back","hip-ipsi"],
+  dirs: ["up","down","fwd","back","ipsi","contra"],
+  hands: ["dh","ndh","both sym(mirror)","both sym(alt)","both sym(parallel)","both free"],
+  contact: ["light","firm","brush","none"],
+  movePrims: ["straight","arc","circle","zigzag","spiral","path","pivot",
+              "wiggle","flick","open","close","twist","nod","tap","rub","shake"],
+  moveParams: ["size","speed","repeat","end","tension","alt","dir","plane",
+               "to","via","cw","ccw","fingers","wrist","axis"],
+};
+ASL.zones = ["neutral"];
+for (const x of ["contra","center","ipsi"])
+  for (const y of ["low","mid","high"])
+    for (const z of ["near","mid","far"])
+      ASL.zones.push(`${x}-${y}-${z}`);
+ASL.allHs = [...ASL.hsBases, ...ASL.hsNumerals, ...ASL.hsDerived];
+ASL.allLocs = [...ASL.anatomical, ...ASL.zones];
+
+/* strip # comments (outside strings) but keep newlines for line math */
+function stripComments(s) {
+  let out = "", inStr = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '"') inStr = !inStr;
+    if (c === "#" && !inStr) { while (i < s.length && s[i] !== "\n") i++; out += "\n"; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/* Split a def-block body into ordered [key, value] pairs.
+   Mirrors the v0.1.2 parser: a value ends at `fieldkey :`, at a sub-block
+   opener (`dh {` / `ndh {` / `seg {`, §7.1.1-7.1.2), or at end of body.
+   Sub-blocks are captured as ["dh"|"ndh"|"seg", "{ ...inner... }"]. */
+const SUBBLOCKS = ["dh", "ndh", "seg"];
+function parseFields(body) {
+  const src = stripComments(body);
+  const fields = [];
+  const isKeyAt = (pos, word) =>
+    src.startsWith(word, pos) && (pos === 0 || /[\s{]/.test(src[pos - 1]));
+  const subAt = pos => SUBBLOCKS.find(n => isKeyAt(pos, n) && /^\s*\{/.test(src.slice(pos + n.length)));
+  const fieldAt = pos => ASL.fieldkeys.find(k => isKeyAt(pos, k) && /^\s*:/.test(src.slice(pos + k.length)));
+  let i = 0;
+  while (i < src.length) {
+    if (/\s/.test(src[i])) { i++; continue; }
+    const sb = subAt(i);
+    if (sb) {
+      const open = src.indexOf("{", i);
+      let d = 1, j = open + 1;
+      while (j < src.length && d > 0) {
+        if (src[j] === "{") d++;
+        else if (src[j] === "}") d--;
+        j++;
+      }
+      fields.push([sb, "{ " + src.slice(open + 1, j - 1).replace(/\s+/g, " ").trim() + " }"]);
+      i = j;
+      continue;
+    }
+    const fk = fieldAt(i);
+    if (!fk) { i++; continue; }
+    const valStart = src.indexOf(":", i) + 1;
+    let j = valStart, depth = 0;
+    while (j < src.length) {
+      const c = src[j];
+      if (c === "(") depth++;
+      else if (c === ")") depth--;
+      else if (depth === 0 && (fieldAt(j) || subAt(j) || c === "}")) break;
+      j++;
+    }
+    fields.push([fk, src.slice(valStart, j).replace(/\s+/g, " ").trim()]);
+    i = j;
+  }
+  return fields;
+}
+
+/* Parse a whole dictionary file → { header, entries[] }.
+   An entry's gloss = contiguous `#` comment lines directly above its def. */
+function parseDict(text) {
+  const entries = [];
+  const defRe = /(^|\n)([ \t]*)def[ \t]+([A-Za-z0-9_.+-]+)(?:[ \t]+compound\(([^)]*)\))?[ \t]+sign[ \t]*\{/g;
+  let m, headerEnd = null;
+  while ((m = defRe.exec(text)) !== null) {
+    const defStart = m.index + m[1].length;
+    let i = defRe.lastIndex, depth = 1, inStr = false;
+    while (i < text.length && depth > 0) {
+      const c = text[i];
+      if (c === '"') inStr = !inStr;
+      else if (!inStr && c === "#") { while (i < text.length && text[i] !== "\n") i++; }
+      else if (!inStr && c === "{") depth++;
+      else if (!inStr && c === "}") depth--;
+      i++;
+    }
+    if (depth > 0) throw new Error(`unclosed def ${m[3]}`);
+    const body = text.slice(defRe.lastIndex, i - 1);
+    let cStart = defStart;
+    const before = text.slice(0, defStart).split("\n");
+    let k = before.length - 2; // line above the def line
+    while (k >= 0 && /^\s*#/.test(before[k])) k--;
+    cStart = before.slice(0, k + 1).join("\n").length + (k >= 0 ? 1 : 0);
+    const commentLines = before.slice(k + 1).filter(l => /^\s*#/.test(l));
+    const gloss = commentLines.map(l => l.replace(/^\s*#\s?/, "")).join("\n");
+    if (headerEnd === null) headerEnd = cStart;
+    entries.push({ id: m[3], compound: (m[4] || "").replace(/\s+/g, " ").trim(),
+                   gloss, fields: parseFields(body) });
+    defRe.lastIndex = i;
+  }
+  const header = (headerEnd === null ? text : text.slice(0, headerEnd)).replace(/\s+$/, "");
+  return { header, entries };
+}
+
+function serializeEntry(e) {
+  const gloss = (e.gloss || "").trim();
+  const lines = [];
+  for (const g of gloss ? gloss.split("\n") : []) lines.push(`# ${g}`.trimEnd());
+  const comp = (e.compound || "").trim();
+  lines.push(`def ${e.id}${comp ? ` compound(${comp})` : ""} sign {`);
+  for (const [k, v] of e.fields) {
+    if (!(v || "").trim()) continue;
+    if (v.trim().startsWith("{")) lines.push(`  ${k} ${v.trim()}`);  // sub-block
+    else lines.push(`  ${k}: ${v.trim()}`);
+  }
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function serializeDict(doc) {
+  const parts = [doc.header.replace(/\s+$/, "")];
+  for (const e of doc.entries) parts.push(serializeEntry(e));
+  return parts.join("\n\n") + "\n";
+}
+
+function defaultHeader() {
+  return [
+    "%lry 0.1",
+    "%lang asl.v1",
+    "%dict core",
+    "",
+    "# LARRY core sign dictionary.",
+    "# Managed by tools/dict_editor.html — hand edits are fine; keep one",
+    '# "# gloss" comment line directly above each def (the editor reads it).',
+    "#",
+    "# Every definition here is a hypothesis pending review by fluent Deaf",
+    "# signers and ASL linguists (see GOVERNANCE.md). Entries sourced from",
+    "# the spec are marked; everything else needs a citation or a review.",
+  ].join("\n");
+}
+
+/* normalize numeral-alias handshapes: 2→V, 6→W, 9→F (§10.1) */
+function normalizeHs(value) {
+  return value.replace(/(^|[\s>])([269])(?=$|[\s@>])/g,
+    (_, pre, d) => pre + ASL.hsAliases[d]);
+}
+
+function fieldMap(e) { return Object.fromEntries(e.fields); }
+
+/* validation: [severity, message] — mirrors §7.1 requirements + inventories */
+function checkArticulators(fm, out, where) {
+  const at = where ? ` in ${where}` : "";
+  if (fm.hs) {
+    const shapes = fm.hs.split(">").map(s => s.trim().split(/[@\s]/)[0]).filter(Boolean);
+    for (const s of shapes) {
+      if (ASL.hsAliases[s])
+        out.push(["warn", `Handshape '${s}'${at} is an alias of '${ASL.hsAliases[s]}' — will be normalized on save (§10.1).`]);
+      else if (s && !ASL.allHs.includes(s))
+        out.push(["warn", `Handshape '${s}'${at} is not in the asl.v1 inventory (§10.1).`]);
+    }
+  }
+  if (fm.loc) {
+    const names = fm.loc.replace(/contact\([^)]*\)/g, "").split("->").map(s => s.trim().split(/\s/)[0]).filter(Boolean);
+    for (const n of names)
+      if (!ASL.allLocs.includes(n))
+        out.push(["warn", `Location '${n}'${at} is not an asl.v1 anatomical location or grid zone (§10.2, §2.4).`]);
+    const cm = fm.loc.match(/contact\(([^)]*)\)/);
+    if (cm && !ASL.contact.includes(cm[1].trim()))
+      out.push(["warn", `contact(${cm[1]})${at} — expected one of: ${ASL.contact.join(", ")} (§7.1).`]);
+  }
+  if (fm.orient) {
+    for (const dm of fm.orient.matchAll(/(palm|fingers)\(([^)]*)\)/g)) {
+      const arg = dm[2].trim();
+      if (dm[1] === "palm" && arg === "contact") continue;
+      for (const d of arg.split("+"))
+        if (!ASL.dirs.includes(d.trim()))
+          out.push(["warn", `${dm[1]}(${arg})${at}: '${d.trim()}' is not a direction (${ASL.dirs.join(" ")}) (§7.1).`]);
+    }
+  }
+  if (fm.mv) {
+    for (const wm of fm.mv.matchAll(/(^|[\s+])([a-z][a-z-]*)\s*(?=\()/g)) {
+      const w = wm[2];
+      if (!ASL.movePrims.includes(w) && !ASL.moveParams.includes(w))
+        out.push(["warn", `mv: '${w}'${at} is not a known movement primitive or parameter (§7.2).`]);
+    }
+  }
+  if (fm.hands && !ASL.hands.includes(fm.hands.trim()))
+    out.push(["warn", `hands '${fm.hands}'${at} is not a recognized form (§7.1).`]);
+}
+function requireHsLoc(fm, out, where) {
+  const at = where ? ` in ${where}` : "";
+  if (!(fm.hs || "").trim()) out.push(["error", `hs (handshape) is required${at} (§7.1).`]);
+  if (!(fm.loc || "").trim()) out.push(["error", `loc (location) is required${at} (§7.1).`]);
+}
+function validateEntry(e, otherIds) {
+  const out = [];
+  const f = fieldMap(e);
+  if (!e.id) out.push(["error", "Sign ID is required."]);
+  else if (!/^[A-Z][A-Z0-9-]*$/.test(e.id))
+    out.push(["error", `Sign ID '${e.id}' must be UPPERCASE letters, digits, hyphens (§5.1).`]);
+  if (otherIds && otherIds.includes(e.id))
+    out.push(["error", `Duplicate sign ID '${e.id}' — already in this dictionary.`]);
+  if (e.compound)
+    for (const c of e.compound.split(",").map(s => s.trim()).filter(Boolean))
+      if (!/^[A-Z][A-Z0-9-]*$/.test(c))
+        out.push(["warn", `compound(${c}): ancestry references should be UPPERCASE sign IDs (§7.1.3).`]);
+  const subs = e.fields.filter(x => SUBBLOCKS.includes(x[0]));
+  if (!subs.length) {
+    requireHsLoc(f, out, "");
+    checkArticulators(f, out, "");
+    if ((f.hands || "").trim() === "both free")
+      out.push(["warn", "hands: both free declared but no dh{}/ndh{} sub-blocks (§7.1.1)."]);
+    return out;
+  }
+  const hasSeg = subs.some(s => s[0] === "seg");
+  const hasHand = subs.some(s => s[0] !== "seg");
+  if (hasSeg && hasHand)
+    out.push(["warn", "Mix of seg{} and top-level hand blocks — with segments, hand blocks belong inside a seg{} (§7.1.2)."]);
+  if (hasHand && (f.hands || "").trim() !== "both free")
+    out.push(["error", "dh{}/ndh{} sub-blocks require hands: both free (§7.1.1)."]);
+  if (hasSeg)
+    for (const [k] of e.fields)
+      if (!SUBBLOCKS.includes(k) && k !== "hands" && k !== "nm")
+        out.push(["warn", `With seg{} present, top-level '${k}:' should move into a segment (§7.1.2).`]);
+  let segN = 0;
+  for (const [name, v] of subs) {
+    const inner = v.trim().replace(/^\{/, "").replace(/\}$/, "");
+    const innerFields = parseFields(inner);
+    const ifm = Object.fromEntries(innerFields);
+    if (name === "seg") {
+      segN++;
+      const where = `seg ${segN}`;
+      const innerSubs = innerFields.filter(x => SUBBLOCKS.includes(x[0]));
+      if (innerSubs.some(x => x[0] === "seg"))
+        out.push(["error", `seg{} cannot nest inside seg{} (${where}, §7.1.2).`]);
+      if (innerSubs.length) {
+        if ((ifm.hands || "").trim() !== "both free")
+          out.push(["error", `dh{}/ndh{} inside ${where} require hands: both free (§7.1.1).`]);
+        for (const [hn, hv] of innerSubs) {
+          if (hn === "seg") continue;
+          const hfm = Object.fromEntries(parseFields(hv.trim().replace(/^\{/, "").replace(/\}$/, "")));
+          requireHsLoc(hfm, out, `${where} ${hn}{}`);
+          checkArticulators(hfm, out, `${where} ${hn}{}`);
+        }
+      } else {
+        requireHsLoc(ifm, out, where);
+        checkArticulators(ifm, out, where);
+      }
+    } else {
+      requireHsLoc(ifm, out, `${name}{}`);
+      checkArticulators(ifm, out, `${name}{}`);
+    }
+  }
+  return out;
+}
+
+if (typeof module !== "undefined") {
+  module.exports = { ASL, SUBBLOCKS, parseFields, parseDict, serializeEntry,
+                     serializeDict, defaultHeader, normalizeHs, validateEntry,
+                     fieldMap };
+}
+</script>
+
+<script id="ui">
+if (typeof document !== "undefined") (function () {
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ---------- state ---------- */
+let doc = { header: defaultHeader(), entries: [] };
+let fileHandle = null, fileName = null, dirty = false;
+let editing = -1;               // index into doc.entries, -1 = new sign
+
+/* ---------- populate selects ---------- */
+function fill(sel, items, groups) {
+  if (groups) {
+    for (const [label, list] of groups) {
+      const og = document.createElement("optgroup");
+      og.label = label;
+      for (const v of list) og.appendChild(new Option(v, v));
+      sel.appendChild(og);
+    }
+  } else {
+    for (const v of items) sel.appendChild(new Option(v, v));
+  }
+}
+fill($("hs-base"), null, [
+  ["fingerspelling bases", ASL.hsBases],
+  ["numerals", ASL.hsNumerals],
+  ["derived / marked", ASL.hsDerived],
+]);
+fill($("hs-to"), null, [
+  ["fingerspelling bases", ASL.hsBases],
+  ["numerals", ASL.hsNumerals],
+  ["derived / marked", ASL.hsDerived],
+]);
+for (const s of ["or-palm", "or-palm2", "or-fing", "or-fing2"]) fill($(s), ASL.dirs);
+$("or-palm").insertBefore(new Option("contact", "contact"), $("or-palm").options[1]);
+fill($("loc-main"), null, [["anatomical", ASL.anatomical], ["grid zones", ASL.zones]]);
+fill($("loc-to"), null, [["anatomical", ASL.anatomical], ["grid zones", ASL.zones]]);
+fill($("loc-contact"), ASL.contact);
+
+const MV_TEMPLATES = {
+  straight: "straight(dir: fwd)", arc: "arc(dir: fwd, plane: v)",
+  circle: "circle(plane: v, cw)", zigzag: "zigzag(dir: fwd)",
+  spiral: "spiral(dir: up)", path: "path(free, to: ipsi-mid-far)",
+  pivot: "pivot(axis: pinky-edge, open: 120deg)", wiggle: "wiggle(fingers)",
+  flick: "flick", open: "open", close: "close", twist: "twist(90deg)",
+  nod: "nod(wrist)", tap: "tap(2)", rub: "rub", shake: "shake",
+};
+const MV_PARAMS = ["size(small)", "size(med)", "size(large)", "speed(0.7)",
+  "repeat(2)", "end(hold)", "end(release)", "end(contact)",
+  "tension(lax)", "tension(tense)", "alt"];
+fill($("mv-prim"), Object.keys(MV_TEMPLATES));
+fill($("mv-param"), MV_PARAMS);
+$("mv-prim").addEventListener("change", () => insertMv(MV_TEMPLATES[$("mv-prim").value]));
+$("mv-param").addEventListener("change", () => insertMv($("mv-param").value));
+function insertMv(text) {
+  if (!text) return;
+  const ta = $("mv-text");
+  ta.value = (ta.value.trim() ? ta.value.trim() + " " : "") + text;
+  $("mv-prim").selectedIndex = 0; $("mv-param").selectedIndex = 0;
+  refresh();
+}
+
+/* ---------- raw-mode toggles ---------- */
+const RAW = [
+  ["hands", ["hands-sel"]],
+  ["hs", ["hs-base", "hs-to", "hs-seg"]],
+  ["or", ["or-palm", "or-palm2", "or-fing", "or-fing2"]],
+  ["loc", ["loc-main", "loc-to", "loc-contact"]],
+];
+for (const [p, widgets] of RAW) {
+  $(p + "-rawtog").addEventListener("change", () => {
+    const raw = $(p + "-rawtog").checked;
+    $(p + "-raw").hidden = !raw;
+    for (const w of widgets) $(w).disabled = raw;
+    refresh();
+  });
+}
+function setRaw(prefix, on, value) {
+  $(prefix + "-rawtog").checked = on;
+  $(prefix + "-raw").hidden = !on;
+  if (value !== undefined) $(prefix + "-raw").value = value;
+  for (const [p, widgets] of RAW)
+    if (p === prefix) for (const w of widgets) $(w).disabled = on;
+}
+
+/* ---------- whole-entry raw mode (sub-block entries, §7.1.1-7.1.2) ---------- */
+let rawEntry = false;
+const FIELD_ROW_LABELS = ["hands", "hs *", "orient", "loc *", "mv", "nm"];
+const fieldRows = [...document.querySelectorAll(".row")].filter(r => {
+  const l = r.querySelector("label.head");
+  return l && FIELD_ROW_LABELS.includes(l.childNodes[0].textContent.trim());
+});
+function serializeBody(e) {
+  const lines = [];
+  for (const [k, v] of e.fields) {
+    if (!(v || "").trim()) continue;
+    if (v.trim().startsWith("{")) lines.push(`${k} ${v.trim()}`);
+    else lines.push(`${k}: ${v.trim()}`);
+  }
+  return lines.join("\n");
+}
+function setRawEntry(on) {
+  rawEntry = on;
+  for (const r of fieldRows) r.hidden = on;
+  $("def-raw-row").hidden = !on;
+  $("btn-rawmode").textContent = on ? "Edit as form" : "Edit as text";
+}
+$("btn-rawmode").onclick = () => {
+  if (!rawEntry) {
+    $("def-raw").value = serializeBody(formEntry());
+    setRawEntry(true);
+    refresh();
+  } else {
+    const e = formEntry();   // parses the textarea; loadForm re-enters raw if sub-blocks remain
+    loadForm({ id: e.id, gloss: e.gloss, compound: e.compound, fields: e.fields });
+  }
+};
+
+/* ---------- form -> entry ---------- */
+function fieldValues() {
+  const v = {};
+  v.hands = $("hands-rawtog").checked ? $("hands-raw").value : $("hands-sel").value;
+  if ($("hs-rawtog").checked) v.hs = $("hs-raw").value;
+  else {
+    v.hs = $("hs-base").value;
+    if ($("hs-to").value) {
+      v.hs += " > " + $("hs-to").value;
+      if ($("hs-seg").checked) v.hs += " @ mv.end";
+    }
+  }
+  if ($("or-rawtog").checked) v.orient = $("or-raw").value;
+  else {
+    const parts = [];
+    if ($("or-palm").value) {
+      let p = $("or-palm").value;
+      if (p !== "contact" && $("or-palm2").value && $("or-palm2").value !== p)
+        p += "+" + $("or-palm2").value;
+      parts.push(`palm(${p})`);
+    }
+    if ($("or-fing").value) {
+      let p = $("or-fing").value;
+      if ($("or-fing2").value && $("or-fing2").value !== p) p += "+" + $("or-fing2").value;
+      parts.push(`fingers(${p})`);
+    }
+    v.orient = parts.join(" ");
+  }
+  if ($("loc-rawtog").checked) v.loc = $("loc-raw").value;
+  else {
+    let l = $("loc-main").value;
+    if ($("loc-to").value) l += " -> " + $("loc-to").value;
+    if ($("loc-contact").value) l += ` contact(${$("loc-contact").value})`;
+    v.loc = l;
+  }
+  v.mv = $("mv-text").value;
+  v.nm = $("nm-text").value;
+  return v;
+}
+function formEntry() {
+  let fields;
+  if (rawEntry) {
+    fields = parseFields($("def-raw").value);
+  } else {
+    const v = fieldValues();
+    fields = [];
+    for (const k of ASL.fieldkeys)
+      if ((v[k] || "").trim()) fields.push([k, v[k].replace(/\s+/g, " ").trim()]);
+  }
+  return { id: $("f-id").value.trim(), gloss: $("f-gloss").value.trim(),
+           compound: $("f-compound").value.trim(), fields };
+}
+
+/* ---------- entry -> form (decompose; fall back to raw) ---------- */
+function loadForm(e) {
+  const f = e ? fieldMap(e) : {};
+  $("f-id").value = e ? e.id : "";
+  $("f-gloss").value = e ? e.gloss : "";
+  $("f-compound").value = e && e.compound ? e.compound : "";
+  // entries with sub-blocks (dh/ndh/seg) can't fit the widgets: edit as text
+  const subby = e && e.fields.some(x => SUBBLOCKS.includes(x[0]));
+  setRawEntry(!!subby);
+  if (subby) {
+    $("def-raw").value = serializeBody(e);
+    refresh();
+    return;
+  }
+  $("def-raw").value = "";
+  // hands
+  const hands = (f.hands || "").trim();
+  if (!hands || ASL.hands.includes(hands)) { setRaw("hands", false); $("hands-sel").value = hands; }
+  else setRaw("hands", true, hands);
+  // hs
+  const hm = (f.hs || "").trim()
+    .match(/^([A-Za-z0-9-]+)(?:\s*>\s*([A-Za-z0-9-]+)(\s*@\s*mv\.end)?)?$/);
+  if (!f.hs) { setRaw("hs", false); $("hs-base").value = "B"; $("hs-to").value = ""; $("hs-seg").checked = false; }
+  else if (hm && ASL.allHs.includes(hm[1]) && (!hm[2] || ASL.allHs.includes(hm[2]))) {
+    setRaw("hs", false);
+    $("hs-base").value = hm[1]; $("hs-to").value = hm[2] || "";
+    $("hs-seg").checked = !!hm[3];
+  } else setRaw("hs", true, f.hs);
+  // orient
+  const om = (f.orient || "").trim()
+    .match(/^(?:palm\(([a-z+]+)\))?\s*(?:fingers\(([a-z+]+)\))?$/);
+  const dirOk = s => !s || s === "contact" ||
+    s.split("+").every(d => ASL.dirs.includes(d));
+  if (om && dirOk(om[1]) && dirOk(om[2]) && !(om[1] === undefined && om[2] === undefined && f.orient)) {
+    setRaw("or", false);
+    const [p1, p2] = (om[1] || "").split("+");
+    const [f1, f2] = (om[2] || "").split("+");
+    $("or-palm").value = p1 || ""; $("or-palm2").value = p2 || "";
+    $("or-fing").value = f1 || ""; $("or-fing2").value = f2 || "";
+  } else setRaw("or", true, f.orient || "");
+  // loc
+  const lm = (f.loc || "").trim()
+    .match(/^([a-z0-9-]+)(?:\s*->\s*([a-z0-9-]+))?(?:\s+contact\((\w+)\))?$/);
+  if (!f.loc) { setRaw("loc", false); $("loc-main").value = "neutral"; $("loc-to").value = ""; $("loc-contact").value = ""; }
+  else if (lm && ASL.allLocs.includes(lm[1]) && (!lm[2] || ASL.allLocs.includes(lm[2]))) {
+    setRaw("loc", false);
+    $("loc-main").value = lm[1]; $("loc-to").value = lm[2] || "";
+    $("loc-contact").value = lm[3] || "";
+  } else setRaw("loc", true, f.loc);
+  $("mv-text").value = f.mv || "";
+  $("nm-text").value = f.nm || "";
+  refresh();
+}
+
+/* ---------- list ---------- */
+function refreshList() {
+  const q = $("search").value.trim().toUpperCase();
+  const ul = $("entry-list");
+  ul.innerHTML = "";
+  doc.entries.forEach((e, i) => {
+    if (q && !e.id.includes(q) && !e.gloss.toUpperCase().includes(q)) return;
+    const li = document.createElement("li");
+    li.className = i === editing ? "active" : "";
+    li.innerHTML = `<strong>${e.id}</strong><span class="g"></span>`;
+    li.querySelector(".g").textContent = e.gloss.split("\n")[0];
+    li.onclick = () => { editing = i; loadForm(e); refreshList(); };
+    ul.appendChild(li);
+  });
+  $("count").textContent = `${doc.entries.length} sign${doc.entries.length === 1 ? "" : "s"}`;
+  $("btn-delete").hidden = editing < 0;
+  $("btn-commit").textContent = editing < 0 ? "Add sign" : "Update sign";
+}
+
+/* ---------- preview + checks ---------- */
+function refresh() {
+  const e = formEntry();
+  $("preview").textContent = e.id || e.fields.length ? serializeEntry(e) : "(empty)";
+  const others = doc.entries.filter((_, i) => i !== editing).map(x => x.id);
+  const findings = validateEntry(e, others);
+  const box = $("findings");
+  box.innerHTML = "";
+  if (!findings.length) {
+    const d = document.createElement("div");
+    d.className = "f ok"; d.textContent = "✓ no problems found";
+    box.appendChild(d);
+  }
+  for (const [sev, msg] of findings) {
+    const d = document.createElement("div");
+    d.className = "f " + sev; d.textContent = msg;
+    box.appendChild(d);
+  }
+  $("btn-commit").disabled = findings.some(f => f[0] === "error");
+}
+document.querySelectorAll("input, select, textarea").forEach(el =>
+  el.addEventListener("input", refresh));
+$("f-id").addEventListener("input", () => {
+  const p = $("f-id").selectionStart;
+  $("f-id").value = $("f-id").value.toUpperCase();
+  $("f-id").setSelectionRange(p, p);
+  refresh();
+});
+$("search").addEventListener("input", refreshList);
+
+/* ---------- commit / delete / copy ---------- */
+function markDirty(v) {
+  dirty = v;
+  $("dirty-flag").hidden = !v;
+}
+$("btn-commit").onclick = () => {
+  const e = formEntry();
+  for (const fl of e.fields)
+    if (fl[0] === "hs" || SUBBLOCKS.includes(fl[0])) fl[1] = normalizeHs(fl[1]);
+  if (editing < 0) { doc.entries.push(e); editing = doc.entries.length - 1; }
+  else doc.entries[editing] = e;
+  markDirty(true);
+  loadForm(e);
+  refreshList();
+};
+$("btn-delete").onclick = () => {
+  if (editing < 0) return;
+  if (!confirm(`Delete ${doc.entries[editing].id}?`)) return;
+  doc.entries.splice(editing, 1);
+  editing = -1;
+  markDirty(true);
+  loadForm(null);
+  refreshList();
+};
+$("btn-copy").onclick = () =>
+  navigator.clipboard.writeText(serializeEntry(formEntry()));
+$("btn-new-sign").onclick = () => { editing = -1; loadForm(null); refreshList(); $("f-id").focus(); };
+
+/* ---------- file ops ---------- */
+const FS = "showOpenFilePicker" in window;
+function setFileLabel() {
+  $("file-label").textContent = fileName || "no file — using a new empty dictionary";
+}
+function loadText(text, name) {
+  try {
+    doc = parseDict(text);
+  } catch (err) {
+    alert("Could not parse that file: " + err.message);
+    return;
+  }
+  fileName = name;
+  editing = -1;
+  markDirty(false);
+  setFileLabel();
+  loadForm(null);
+  refreshList();
+}
+$("btn-open").onclick = async () => {
+  if (dirty && !confirm("Discard unsaved changes?")) return;
+  if (FS) {
+    try {
+      const [h] = await window.showOpenFilePicker({
+        types: [{ description: "LARRY dictionary", accept: { "text/plain": [".lry"] } }],
+      });
+      fileHandle = h;
+      loadText(await (await h.getFile()).text(), h.name);
+    } catch (e) { /* user cancelled */ }
+  } else $("open-fallback").click();
+};
+$("open-fallback").addEventListener("change", async ev => {
+  const f = ev.target.files[0];
+  if (f) { fileHandle = null; loadText(await f.text(), f.name); }
+  ev.target.value = "";
+});
+async function writeOut(saveAs) {
+  const text = serializeDict(doc);
+  if (FS) {
+    try {
+      if (saveAs || !fileHandle) {
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: fileName || "core.lry",
+          types: [{ description: "LARRY dictionary", accept: { "text/plain": [".lry"] } }],
+        });
+        fileName = fileHandle.name;
+      }
+      const w = await fileHandle.createWritable();
+      await w.write(text);
+      await w.close();
+      markDirty(false);
+      setFileLabel();
+      return;
+    } catch (e) { if (e.name === "AbortError") return; alert("Save failed: " + e.message); return; }
+  }
+  // fallback: download
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.download = fileName || "core.lry";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  markDirty(false);
+}
+$("btn-save").onclick = () => writeOut(false);
+$("btn-save-as").onclick = () => writeOut(true);
+$("btn-new-file").onclick = () => {
+  if (dirty && !confirm("Discard unsaved changes?")) return;
+  doc = { header: defaultHeader(), entries: [] };
+  fileHandle = null; fileName = null; editing = -1;
+  markDirty(false);
+  setFileLabel();
+  loadForm(null);
+  refreshList();
+};
+window.addEventListener("beforeunload", ev => { if (dirty) ev.preventDefault(); });
+
+/* ---------- field info panel ---------- */
+const INFO = {
+  id: { title: "SIGN ID", html:
+    "<p>The dictionary key for this sign — the token authors type in <code>.lry</code> files (<code>GIVE</code>, <code>LOOK-AT</code>).</p>" +
+    "<p>UPPERCASE letters, digits, and hyphens. Every LARRY document using this token resolves it against this dictionary; an unknown token is a lint error, and renderers must fall back to fingerspelling <em>and</em> flag it — never skip it silently.</p>" +
+    "<p class='ref'>Spec §5.1, §9.4</p>" },
+  compound: { title: "compound — ancestry", html:
+    "<p>Optional etymology: the signs this compound descends from, comma-separated (<code>GIRL, SAME</code>). Written into the def line: <code>def SISTER compound(GIRL, SAME) sign {…}</code>.</p>" +
+    "<p><strong>Metadata only.</strong> Renderers ignore it, and the parts need not exist as dictionary entries. The def body still describes the modern, reduced form — usually as ordered <code>seg{ }</code> phases (edit via 'Edit as text').</p>" +
+    "<p class='ref'>Spec §7.1.2–7.1.3</p>" },
+  gloss: { title: "gloss", html:
+    "<p>A human note, not part of the sign. Saved as a <code>#</code> comment line directly above the def.</p>" +
+    "<p>Give the English meaning and — importantly — <strong>where the definition came from</strong>: a spec section, a dictionary, a video reference, or the signer who verified it.</p>" +
+    "<p>Every entry is a linguistic hypothesis until fluent Deaf signers review it (GOVERNANCE.md). The citation is what makes review possible.</p>" },
+  hands: { title: "hands", html:
+    "<p>Which hand(s) articulate the sign:</p>" +
+    "<ul><li><code>dh</code> — dominant hand only (the default)</li>" +
+    "<li><code>ndh</code> — non-dominant hand only</li>" +
+    "<li><code>both sym(mirror)</code> — both hands, mirror images (BOOK)</li>" +
+    "<li><code>both sym(alt)</code> — both hands alternate</li>" +
+    "<li><code>both sym(parallel)</code> — both hands move together, same direction</li></ul>" +
+    "<p>Battison's conditions apply: in <code>sym()</code> signs both hands share one handshape; in asymmetric two-handed signs the non-dominant hand should use an unmarked shape (B A S C O 1 5).</p>" +
+    "<p><code>both free</code> (v0.1.2): the hands act independently — each gets its own <code>dh{ }</code>/<code>ndh{ }</code> sub-block (use 'Edit as text'). A sub-block with no <code>mv:</code> holds its posture for the whole sign — the normal case for base hands (HELP, SCHOOL, MONEY). Directions stay in the signer's global frame: <code>ipsi</code> is always the dominant side.</p>" +
+    "<p>Sequential parts (compounds like SISTER) use <code>seg{ }</code> blocks instead — ordered phases, still one beat total.</p>" +
+    "<p class='ref'>Spec §7.1, §7.1.1–7.1.2</p>" },
+  hs: { title: "hs — handshape", html:
+    "<p>The hand's configuration, from the asl.v1 inventory of 52 shapes: fingerspelling letter shapes, numeral shapes, and derived/marked shapes (<code>open-B</code>, <code>claw-5</code>, <code>flat-O</code>…).</p>" +
+    "<p>A transition (<code>5 › flat-O</code>) means the hand changes shape during the sign — e.g. closing while it moves. Check <code>@ mv.end</code> to pin the change to the end of the movement.</p>" +
+    "<p>Numeral names <code>2</code>, <code>6</code>, <code>9</code> are aliases of <code>V</code>, <code>W</code>, <code>F</code> and normalize on save.</p>" +
+    "<p class='ref'>Spec §7.1, §10.1</p>" },
+  orient: { title: "orient — orientation", html:
+    "<p>Which way the palm and fingers point, in <strong>signer-relative</strong> directions:</p>" +
+    "<ul><li><code>ipsi</code> — toward the signing-hand's side</li>" +
+    "<li><code>contra</code> — across the body</li>" +
+    "<li><code>fwd / back / up / down</code></li></ul>" +
+    "<p>Combine two with <code>+</code> (<code>ipsi+fwd</code> = diagonal). <code>palm(contact)</code> means the palms face each other and touch, as in BOOK.</p>" +
+    "<p>Signer-relative directions keep a def valid for left- and right-handed signers.</p>" +
+    "<p class='ref'>Spec §7.1</p>" },
+  loc: { title: "loc — location", html:
+    "<p>Where the sign is made:</p>" +
+    "<ul><li><strong>Anatomical</strong> (<code>chin</code>, <code>temple-ipsi</code>, <code>ndh-palm</code>…) for body-anchored signs</li>" +
+    "<li><strong>Grid zones</strong> in the 3×3×3 signing space: <code>{contra|center|ipsi}-{low|mid|high}-{near|mid|far}</code>; <code>neutral</code> = <code>center-mid-near</code>, the default signing box</li></ul>" +
+    "<p>A path (<code>chin → chest</code>) moves between two locations during the sign. <code>contact()</code> says how the hand touches the location: <code>light</code>, <code>firm</code>, <code>brush</code>, or <code>none</code>.</p>" +
+    "<p class='ref'>Spec §2.4, §7.1, §10.2</p>" },
+  mv: { title: "mv — movement", html:
+    "<p>What the hand does. Two kinds of primitive:</p>" +
+    "<ul><li><strong>Path</strong> — the hand travels: <code>straight</code>, <code>arc</code>, <code>circle</code>, <code>zigzag</code>, <code>spiral</code>, <code>path</code>, <code>pivot</code></li>" +
+    "<li><strong>Local</strong> — in place: <code>wiggle</code>, <code>flick</code>, <code>open</code>, <code>close</code>, <code>twist</code>, <code>nod</code>, <code>tap</code>, <code>rub</code>, <code>shake</code></li></ul>" +
+    "<p>Join with <code>+</code> for simultaneous (<code>straight(dir: fwd) + wiggle(fingers)</code> = SNOW); separate with a space for one after another.</p>" +
+    "<p>Parameters tune any movement: <code>size</code>, <code>speed</code>, <code>repeat</code>, <code>end(hold|release|contact)</code>, <code>tension</code>, <code>alt</code>.</p>" +
+    "<p>Describe <em>intent</em>, not animation — velocity profiles and smoothness are the renderer's job.</p>" +
+    "<p class='ref'>Spec §7.2, §9.2</p>" },
+  nm: { title: "nm — non-manuals", html:
+    "<p>Face, head, or mouth behavior that is <strong>part of the sign itself</strong> — e.g. <code>mouth(morpheme: pah)</code> on FINALLY.</p>" +
+    "<p>Keep grammar-level non-manuals out of the dictionary: question brows, negation headshake, and topic marking come from spans like <code>[ynq]{…}</code> in the sentence, not from the sign.</p>" +
+    "<p>Two different things: <code>mouth(morpheme: mm)</code> is a native ASL mouth morpheme; <code>mouth(mouthing: \"word\")</code> is silently mouthing an English word. Conflating them is a classic avatar mistake.</p>" +
+    "<p class='ref'>Spec §7.4, §5.3</p>" },
+};
+let infoOpen = null;
+function toggleInfo(key) {
+  infoOpen = infoOpen === key ? null : key;
+  $("info-panel").hidden = !infoOpen;
+  document.querySelector("main").classList.toggle("has-info", !!infoOpen);
+  if (infoOpen) {
+    $("info-title").textContent = INFO[infoOpen].title;
+    $("info-body").innerHTML = INFO[infoOpen].html;
+  }
+  document.querySelectorAll(".info-btn").forEach(b =>
+    b.classList.toggle("active", b.dataset.info === infoOpen));
+}
+const LABEL_KEYS = { "SIGN ID": "id", "gloss": "gloss", "compound": "compound",
+  "hands": "hands", "hs *": "hs", "orient": "orient", "loc *": "loc",
+  "mv": "mv", "nm": "nm" };
+document.querySelectorAll(".row label.head").forEach(lab => {
+  const key = LABEL_KEYS[lab.textContent.trim()];
+  if (!key || !INFO[key]) return;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "info-btn";
+  b.dataset.info = key;
+  b.textContent = "i";
+  b.title = "About this field";
+  b.setAttribute("aria-label", "About " + INFO[key].title);
+  b.addEventListener("click", ev => { ev.preventDefault(); toggleInfo(key); });
+  lab.appendChild(b);
+});
+
+/* ---------- init ---------- */
+setFileLabel();
+loadForm(null);
+refreshList();
+})();
+</script>
+</body>
+</html>
